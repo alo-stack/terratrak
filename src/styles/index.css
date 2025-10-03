@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* light */
+    --bg: 210 20% 97%;
+    --card: 0 0% 100%;
+    --muted: 210 20% 94%;
+    --border: 210 16% 86%;
+    --text: 222 47% 11%;
+  }
+  .dark {
+    /* tuned for better contrast */
+    --bg: 222 47% 6%;     /* ~slate-950 */
+    --card: 222 47% 8%;   /* ~slate-900 */
+    --muted: 222 25% 14%; /* list hover bg */
+    --border: 222 20% 24%;
+    --text: 0 0% 97%;
+  }
+
+  html, body, #root { height: 100%; }
+  body { @apply bg-[hsl(var(--bg))] text-[hsl(var(--text))] font-sans; }
+}
+
+@layer components {
+  .card { @apply bg-[hsl(var(--card))] rounded-2xl shadow-sm border border-[hsl(var(--border))]; }
+  .pill { @apply rounded-xl px-3 py-1 text-xs font-medium bg-[hsl(var(--muted))]; }
+
+  /* minimalist sidebar item */
+  .sidebar-item {
+    @apply flex items-center gap-3 w-full px-3 py-2 rounded-2xl
+           transition-all duration-200 ease-out select-none;
+  }
+
+  .icon-btn { @apply grid place-items-center rounded-full w-9 h-9 border border-[hsl(var(--border))] bg-[hsl(var(--card))] hover:shadow; }
+}
+
+/* ---------- Minimal, tasteful animations ---------- */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes floatY {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* Convenience utilities */
+.animate-fade-in-up { animation: fadeInUp .5s ease-out both; }
+.animate-float-slow { animation: floatY 6s ease-in-out infinite; }
+.animate-shimmer {
+  background-image: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,255,255,.7) 50%,
+    transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2.25s linear infinite;
+}
+
+/* Subtle interactive surfaces */
+.card-live {
+  transition: box-shadow .25s ease, transform .25s ease, border-color .25s ease;
+}
+.card-live:hover {
+  transform: translateY(1px);
+  box-shadow:
+    0 1px 0 rgba(0,0,0,.02),
+    0 8px 24px -12px rgba(0,0,0,.25);
+  border-color: rgba(16,185,129,.25); /* emerald-ish */
+}
+
+/* ===== Theme toggle micro-animations ===== */
+@keyframes toggleSweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+@keyframes popOnce {
+  0% { transform: scale(.94) rotate(0deg); }
+  55% { transform: scale(1.08) rotate(8deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toggle-sweep, .icon-pop { animation: none !important; }
+}
+
+/* helper classes used by ThemeToggle.tsx */
+.toggle-sweep {
+  background-image: linear-gradient(90deg,
+    transparent,
+    rgba(16,185,129,.35),
+    transparent);
+  background-size: 200% 100%;
+  animation: toggleSweep .55s ease-out;
+}
+.icon-pop { animation: popOnce .35s ease-out; }
+
+/* capsule polish */
+.toggle-capsule {
+  transition: transform .25s ease, box-shadow .25s ease, outline-color .25s ease;
+}
+.toggle-capsule:hover {
+  transform: translateY(-1px) scale(1.03);
+  box-shadow:
+    0 1px 0 rgba(0,0,0,.03),
+    0 10px 24px -12px rgba(0,0,0,.25);
+}
+.toggle-btn {
+  transition: background-color .25s ease, transform .2s ease, box-shadow .2s ease;
+}
+.toggle-btn:active {
+  transform: scale(.96);
+}
+
+/* ===== Settings page micro effects (no @apply) ===== */
+@keyframes borderGlow {
+  0% { box-shadow: 0 0 0 0 rgba(16,185,129,.18); }
+  100% { box-shadow: 0 0 0 8px rgba(16,185,129,0); }
+}
+.glow-on-save { animation: borderGlow .9s ease-out; }
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.banner-enter { animation: slideDown .35s ease-out both; }
+
+/* Subtle dotted background used behind cards */
+.bg-dots {
+  background-image: radial-gradient(currentColor 1px, transparent 1px);
+  background-size: 14px 14px;
+  opacity: .08;
+}
+
+/* Neo card variant just for the Settings page */
+.setting-card {
+  position: relative;
+  border-radius: 1rem; /* rounded-2xl */
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  box-shadow:
+    0 1px 0 rgba(0,0,0,.02),
+    0 10px 28px -18px rgba(0,0,0,.25);
+  transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+}
+.setting-card:hover {
+  transform: translateY(1px);
+  box-shadow:
+    0 2px 0 rgba(0,0,0,.02),
+    0 16px 36px -18px rgba(0,0,0,.35);
+  border-color: rgba(16,185,129,.22);
+}
+/* Dark-mode tweaks */
+.dark .setting-card {
+  border-color: rgba(255,255,255,.10);
+}
+
+/* Input chrome for this page */
+.input {
+  border-radius: .75rem;           /* rounded-xl */
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card));
+  padding: .5rem .75rem;           /* py-2 px-3 */
+  outline: none;
+  transition: box-shadow .2s ease, border-color .2s ease;
+}
+.dark .input {
+  border-color: rgba(255,255,255,.15);
+}
+.input:focus {
+  box-shadow: 0 0 0 3px rgba(16,185,129,.25);
+  border-color: rgba(16,185,129,.45);
+}

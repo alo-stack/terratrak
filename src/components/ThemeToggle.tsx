@@ -1,13 +1,6 @@
 import React from "react"
 import Icon from "./Icon"
 
-/**
- * Vertical theme toggle with tasteful motion:
- * - Hover: capsule lifts + subtle glow
- * - Switch: emerald sweep across capsule + icon pop
- * - Active icon glows (sun in light, moon in dark)
- * - Persists preference in localStorage; respects prefers-color-scheme
- */
 export default function ThemeToggle() {
   const initial = (): boolean => {
     const saved = localStorage.getItem("theme")
@@ -57,7 +50,8 @@ export default function ThemeToggle() {
       aria-pressed={active}
       onClick={onClick}
       className={[
-        "toggle-btn w-8 h-8 rounded-full grid place-items-center transition-colors",
+        "toggle-btn grid place-items-center transition-colors",
+        "w-9 h-9 md:w-8 md:h-8 rounded-full",
         active
           ? "bg-[hsl(var(--muted))] dark:bg-white/12 shadow-inner"
           : "hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
@@ -71,15 +65,18 @@ export default function ThemeToggle() {
   return (
     <div
       className={[
-        "toggle-capsule w-12 py-1.5 rounded-2xl relative",
+        // horizontal on mobile, vertical on md+
+        "toggle-capsule flex md:flex-col items-center gap-1 md:gap-1.5",
+        // sizing
+        "md:w-12 md:py-1.5 md:rounded-2xl w-auto px-1.5 py-1 rounded-full",
+        // visuals
         "bg-[hsl(var(--card))] backdrop-blur",
         "border border-[hsl(var(--border))] dark:border-white/12",
-        "flex flex-col items-center gap-1.5",
         sweeping ? "toggle-sweep" : ""
       ].join(" ")}
       tabIndex={-1}
     >
-      {/* Moon (top) */}
+      {/* Moon (top / left) */}
       <Btn active={dark} label="Dark mode" onClick={() => switchTo(true)}>
         <Icon
           name="moon"
@@ -93,7 +90,7 @@ export default function ThemeToggle() {
         />
       </Btn>
 
-      {/* Sun (bottom) */}
+      {/* Sun (bottom / right) */}
       <Btn active={!dark} label="Light mode" onClick={() => switchTo(false)}>
         <Icon
           name="sun"

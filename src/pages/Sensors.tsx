@@ -1,199 +1,312 @@
 import React from "react"
 
-/* ---------- Types ---------- */
-type Readings = { temp: number; moist: number; ph: number }
-type QuadKey = "A" | "B" | "C" | "D"
+/* --------------------------- Types & helpers --------------------------- */
 
-type Thresholds = {
-  temperature: { min: number; max: number }
-  moisture: { min: number; max: number }
-  ph: { min: number; max: number }
+type Sample = {
+  ts: number
+  temp: number
+  moist: number
+  n: number
+  p: number
+  k: number
 }
 
-const THRESHOLDS_KEY = "tt_thresholds"
+type Status = "ok" | "low" | "high"
+
 const clamp = (v:number, lo:number, hi:number) => Math.max(lo, Math.min(hi, v))
-const toNum = (v:any, d:number) => (Number.isFinite(Number(v)) ? Number(v) : d)
+const avg = (arr:number[]) => (arr.length ? Number((arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)) : 0)
+const colorFor = (s:Status) => s==="ok" ? "#10b981" : s==="low" ? "#38bdf8" : "#f59e0b"
+const statusFor = (v:number, min:number, max:number):Status => (v<min ? "low" : v>max ? "high" : "ok")
 
-/* status helpers */
-const statusFor = (v:number, min:number, max:number) =>
-  (v<min ? "low" : v>max ? "high" : "ok") as "ok"|"low"|"high"
-const colorFor = (k:"ok"|"low"|"high") => k==="ok" ? "#10b981" : k==="low" ? "#38bdf8" : "#f59e0b"
+/** Internal defaults (can be moved to Settings later if you like) */
+const RANGES = {
+  temp:   { min: 15, max: 65 },
+  moist:  { min: 40, max: 80 },
+  n:      { min: 150, max: 900 },
+  p:      { min: 50,  max: 300 },
+  k:      { min: 100, max: 800 },
+}
 
-/* ---------- Page ---------- */
-export default function Sensors() {
-  /* thresholds from localStorage (fallback to defaults) */
-  const thresholds: Thresholds = React.useMemo(() => {
-    try {
-      const raw = localStorage.getItem(THRESHOLDS_KEY)
-      if (raw) {
-        const t = JSON.parse(raw)
-        return {
-          temperature: { min: toNum(t?.temperature?.min, 15), max: toNum(t?.temperature?.max, 65) },
-          moisture:     { min: toNum(t?.moisture?.min, 40),     max: toNum(t?.moisture?.max, 80) },
-          ph:           { min: toNum(t?.ph?.min, 6),            max: toNum(t?.ph?.max, 8)  },
-        }
-      }
-    } catch {}
-    return { temperature: { min: 15, max: 65 }, moisture: { min: 40, max: 80 }, ph: { min: 6, max: 8 } }
-  }, [])
+/** Time windows (in ms) for the range switcher */
+const WINDOWS: Record<RangeKey, number> = {
+  live:  30 * 60 * 1000,     // last 30 minutes
+  "1h":  60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d":  7  * 24 * 60 * 60 * 1000,
+}
+type RangeKey = "live" | "1h" | "24h" | "7d"
 
-  /* live (sim) – swap with your feed later */
-  const [readings, setReadings] = React.useState<Record<QuadKey, Readings>>({
-    A: { temp: 48, moist: 62, ph: 7.2 },
-    B: { temp: 52, moist: 58, ph: 7.0 },
-    C: { temp: 45, moist: 65, ph: 6.7 },
-    D: { temp: 50, moist: 60, ph: 7.5 },
-  })
-
-  /* streaming series for averages */
-  const [series, setSeries] = React.useState<{ temp:number[]; moist:number[]; ph:number[] }>({ temp:[], moist:[], ph:[] })
-  const MAX_POINTS = 90
+/* --------------------------- Live data (mock) -------------------------- */
+/** Simulates a sensor stream. Swap with your real feed later. */
+function useSensorStream() {
+  const [samples, setSamples] = React.useState<Sample[]>([])
+  const MAX = 5000 // ring buffer
 
   React.useEffect(() => {
     let alive = true
-    const jitter = (v:number, a=1) => Number((v + (Math.random()-0.5)*a).toFixed(1))
-    const append = (arr:number[], v:number) => [...arr.slice(-(MAX_POINTS-1)), v]
+    // seed a bit of history so charts aren’t empty
+    if (samples.length === 0) {
+      const now = Date.now()
+      let temp = 48, moist = 62, n = 420, p = 140, k = 380
+      const seeded: Sample[] = []
+      for (let i=300; i>0; i--) {
+        temp = clamp(temp + (Math.random()-0.5)*1.0, 20, 70)
+        moist = clamp(moist + (Math.random()-0.5)*1.2, 25, 90)
+        n = clamp(n + (Math.random()-0.5)*18, RANGES.n.min/2, RANGES.n.max*1.2)
+        p = clamp(p + (Math.random()-0.5)*6,  RANGES.p.min/2, RANGES.p.max*1.2)
+        k = clamp(k + (Math.random()-0.5)*14, RANGES.k.min/2, RANGES.k.max*1.2)
+        seeded.push({
+          ts: now - i*12000, temp: Number(temp.toFixed(1)), moist: Number(moist.toFixed(1)),
+          n: Math.round(n), p: Math.round(p), k: Math.round(k)
+        })
+      }
+      setSamples(seeded)
+    }
+
     const id = setInterval(() => {
       if (!alive) return
-      setReadings(prev => {
-        const step = (r: Readings): Readings => ({
-          temp: clamp(jitter(r.temp, 0.9), 20, 70),
-          moist: clamp(jitter(r.moist, 1.2), 25, 90),
-          ph:   clamp(jitter(r.ph,   0.06), 5,  9),
-        })
-        const next = {
-          A: step(prev.A ?? { temp: 48, moist: 62, ph: 7.2 }),
-          B: step(prev.B ?? { temp: 52, moist: 58, ph: 7.0 }),
-          C: step(prev.C ?? { temp: 45, moist: 65, ph: 6.7 }),
-          D: step(prev.D ?? { temp: 50, moist: 60, ph: 7.5 }),
-        }
-        const avg = (sel:(r:Readings)=>number) =>
-          Number(((sel(next.A)+sel(next.B)+sel(next.C)+sel(next.D))/4).toFixed(1))
-        setSeries(s => ({ temp: append(s.temp, avg(r=>r.temp)),
-                          moist:append(s.moist,avg(r=>r.moist)),
-                          ph:   append(s.ph,   avg(r=>r.ph)) }))
-        return next
-      })
-    }, 1700)
+      const last = samples.at(-1) ?? {
+        ts: Date.now(),
+        temp: 48, moist: 62, n: 420, p: 140, k: 380
+      }
+      const next: Sample = {
+        ts: Date.now(),
+        temp:  Number(clamp(last.temp  + (Math.random()-0.5)*1.0, 20, 70).toFixed(1)),
+        moist: Number(clamp(last.moist + (Math.random()-0.5)*1.2, 25, 90).toFixed(1)),
+        n: Math.round(clamp(last.n + (Math.random()-0.5)*18, RANGES.n.min/2, RANGES.n.max*1.2)),
+        p: Math.round(clamp(last.p + (Math.random()-0.5)*6,  RANGES.p.min/2, RANGES.p.max*1.2)),
+        k: Math.round(clamp(last.k + (Math.random()-0.5)*14, RANGES.k.min/2, RANGES.k.max*1.2)),
+      }
+      setSamples(s => [...s.slice(-(MAX-1)), next])
+    }, 9000)
+
     return () => { alive = false; clearInterval(id) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const avg = React.useMemo(() => {
-    const list = (["A","B","C","D"] as QuadKey[]).map(k => readings[k])
-    const f = (sel:(r:Readings)=>number) => Number((list.reduce((s,r)=>s+sel(r),0)/list.length).toFixed(1))
-    return { temp: f(r=>r.temp), moist: f(r=>r.moist), ph: f(r=>r.ph) }
-  }, [readings])
+  return samples
+}
+
+/* ------------------------------- Page ---------------------------------- */
+
+export default function Sensors() {
+  const samples = useSensorStream()
+
+  // range selector
+  const [range, setRange] = React.useState<RangeKey>("live")
+  const cutoff = Date.now() - WINDOWS[range]
+  const windowed = React.useMemo(
+    () => samples.filter(s => s.ts >= cutoff),
+    [samples, cutoff]
+  )
+
+  // simple series for charts
+  const series = React.useMemo(() => ({
+    temp:  windowed.map(s => s.temp),
+    moist: windowed.map(s => s.moist),
+    n:     windowed.map(s => s.n),
+    p:     windowed.map(s => s.p),
+    k:     windowed.map(s => s.k),
+  }), [windowed])
+
+  // KPIs
+  const kpi = React.useMemo(() => ({
+    temp:  { avg: avg(series.temp) , min: Math.min(...series.temp,  Infinity) || 0, max: Math.max(...series.temp,  -Infinity) || 0 },
+    moist: { avg: avg(series.moist), min: Math.min(...series.moist, Infinity) || 0, max: Math.max(...series.moist, -Infinity) || 0 },
+    n:     { avg: Math.round(avg(series.n)), min: Math.min(...series.n, Infinity) || 0, max: Math.max(...series.n, -Infinity) || 0 },
+    p:     { avg: Math.round(avg(series.p)), min: Math.min(...series.p, Infinity) || 0, max: Math.max(...series.p, -Infinity) || 0 },
+    k:     { avg: Math.round(avg(series.k)), min: Math.min(...series.k, Infinity) || 0, max: Math.max(...series.k, -Infinity) || 0 },
+  }), [series])
+
+  const sTemp  = statusFor(kpi.temp.avg,  RANGES.temp.min,  RANGES.temp.max)
+  const sMoist = statusFor(kpi.moist.avg, RANGES.moist.min, RANGES.moist.max)
+  const sN     = statusFor(kpi.n.avg,     RANGES.n.min,     RANGES.n.max)
+  const sP     = statusFor(kpi.p.avg,     RANGES.p.min,     RANGES.p.max)
+  const sK     = statusFor(kpi.k.avg,     RANGES.k.min,     RANGES.k.max)
+
+  // actionable insights
+  const insights = React.useMemo(() => {
+    const list: string[] = []
+
+    if (sMoist === "low")  list.push("Moisture is trending low—consider watering lightly to reach 60–70%.")
+    if (sMoist === "high") list.push("Moisture is high—add dry bedding and turn the bin to improve airflow.")
+
+    if (sTemp === "high")  list.push("Temperature is elevated—mix the bedding and reduce feed volume.")
+    if (sTemp === "low")   list.push("Temperature is low—ensure the bin is insulated and avoid over-watering.")
+
+    const npkOkay = [sN,sP,sK].every(s => s === "ok")
+    if (!npkOkay) list.push("NPK balance is off—add carbon material for high N, or a light feed for low N/P/K.")
+    if (list.length === 0) list.push("All parameters look healthy. Maintain current routine.")
+    return list
+  }, [sTemp, sMoist, sN, sP, sK])
 
   return (
     <div className="space-y-4 animate-fade-in-up">
-      {/* Header card with shimmer + corner glow (same aesthetic as About/Settings) */}
+      {/* Header */}
       <section className="card card-live relative p-5 md:p-6 overflow-hidden">
         <div className="card-shimmer" />
         <div className="corner-glow top-[-3rem] right-[-3rem]" />
         <h2 className="text-base md:text-lg font-semibold">Sensors</h2>
         <p className="text-sm text-gray-700 dark:text-gray-200">
-          Four-quadrant view of the vermicompost bin. Each quadrant shows live Temperature, Moisture, and pH.
+          Live overview with Temperature, Moisture, and NPK. Use the range switcher to view recent history.
         </p>
       </section>
 
-      {/* Quadrants */}
-      <section className="card card-live relative p-3 md:p-4 overflow-hidden">
-        <div className="corner-glow bottom-[-3rem] left-[-3rem]" />
-        <QuadBox readings={readings} thresholds={thresholds} />
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-700 dark:text-gray-200 px-1">
-          <LegendDot className="bg-sky-500" /> Low
-          <LegendDot className="bg-emerald-500" /> OK
-          <LegendDot className="bg-amber-500" /> High
-          <span className="ml-auto opacity-75">Thresholds from Settings</span>
+      {/* Range switcher */}
+      <section className="card card-live p-3 md:p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <RangeButton label="Live" active={range==="live"} onClick={()=>setRange("live")} />
+          <RangeButton label="1h"   active={range==="1h"}   onClick={()=>setRange("1h")} />
+          <RangeButton label="24h"  active={range==="24h"}  onClick={()=>setRange("24h")} />
+          <RangeButton label="7d"   active={range==="7d"}   onClick={()=>setRange("7d")} />
+          <span className="ml-auto text-xs opacity-75">
+            Window shows last {range==="live" ? "30 min" : range}.
+          </span>
         </div>
       </section>
 
-      {/* Averages – bigger, easy to read, animated in */}
+      {/* KPI cards */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <KpiCard
+          title="Temperature"
+          unit="°C"
+          color={colorFor(sTemp)}
+          status={sTemp}
+          values={{ avg: kpi.temp.avg, min: kpi.temp.min, max: kpi.temp.max }}
+        />
+        <KpiCard
+          title="Moisture"
+          unit="%"
+          color={colorFor(sMoist)}
+          status={sMoist}
+          values={{ avg: kpi.moist.avg, min: kpi.moist.min, max: kpi.moist.max }}
+        />
+        <NpkKpiCard
+          n={kpi.n.avg} p={kpi.p.avg} k={kpi.k.avg}
+          status={{ n: sN, p: sP, k: sK }}
+        />
+      </div>
+
+      {/* Charts */}
       <div className="grid grid-cols-1 gap-4">
-        <ChartCard title="Average Temperature" unit="°C" color="#10b981" data={series.temp}  bigValue={avg.temp} />
-        <ChartCard title="Average Moisture"     unit="%"  color="#38bdf8" data={series.moist} bigValue={avg.moist} />
-        <ChartCard title="Average pH"            unit=""   color="#f59e0b" data={series.ph}   bigValue={avg.ph} />
+        <ChartCard title="Temperature" unit="°C" color="#10b981" data={series.temp}  bigValue={kpi.temp.avg} />
+        <ChartCard title="Moisture"     unit="%"  color="#38bdf8" data={series.moist} bigValue={kpi.moist.avg} />
+        <ChartCard
+          title="NPK (mean)"
+          unit=""
+          color="#f59e0b"
+          data={series.n.map((v,i) => Math.round((v + (series.p[i] ?? v) + (series.k[i] ?? v)) / 3))}
+          bigValue={Math.round((kpi.n.avg + kpi.p.avg + kpi.k.avg)/3)}
+        />
       </div>
+
+      {/* Insights */}
+      <section className="card card-live relative p-5 md:p-6 overflow-hidden">
+        <div className="corner-glow bottom-[-3rem] left-[-3rem]" />
+        <h3 className="text-sm md:text-base font-semibold">Actionable tips</h3>
+        <ul className="mt-3 space-y-2 text-sm">
+          {insights.map((t, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <span className="mt-[6px] inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span>{t}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   )
 }
 
-/* ---------- Quadrant box (simple, readable) ---------- */
-function QuadBox({
-  readings, thresholds
-}:{
-  readings: Record<QuadKey, Readings>
-  thresholds: Thresholds
+/* ------------------------------ Bits & UI ------------------------------ */
+
+function RangeButton({ label, active, onClick }:{
+  label:string; active:boolean; onClick:()=>void
 }) {
-  const containerRef = React.useRef<HTMLDivElement|null>(null)
-  const [w, setW] = React.useState(900)
-  React.useEffect(() => {
-    const update = () => setW(containerRef.current?.clientWidth ?? 900)
-    update()
-    const ro = new ResizeObserver(update)
-    if (containerRef.current) ro.observe(containerRef.current)
-    return () => ro.disconnect()
-  }, [])
-
-  // smooth typographic scaling across widths
-  const s = clamp(w / 900, 0.75, 1.0)
-  const titleSize = Math.max(12, Math.round(14 * s))
-  const valueSize = Math.max(14, Math.round(16 * s))
-  const labelSize = Math.max(11, Math.round(12 * s))
-
-  const blocks: { k:QuadKey; title:string; r:Readings }[] = [
-    { k:"A", title:"North-West", r:readings.A },
-    { k:"B", title:"North-East", r:readings.B },
-    { k:"C", title:"South-West", r:readings.C },
-    { k:"D", title:"South-East", r:readings.D },
-  ]
-
   return (
-    <div ref={containerRef} className="tt-qgrid animate-fade-in-up">
-      {blocks.map(b => {
-        const t = statusFor(b.r.temp, thresholds.temperature.min, thresholds.temperature.max)
-        const m = statusFor(b.r.moist, thresholds.moisture.min, thresholds.moisture.max)
-        const p = statusFor(b.r.ph,   thresholds.ph.min,        thresholds.ph.max)
-        return (
-          <div key={b.k} className="tt-qcell">
-            <div className="flex items-center gap-2">
-              <span className="tt-qbadge">{b.k}</span>
-              <div className="font-semibold" style={{ fontSize: titleSize }}>{b.title}</div>
-            </div>
+    <button
+      onClick={onClick}
+      className={[
+        "px-3 py-1.5 rounded-lg text-sm transition",
+        active
+          ? "border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--muted))] dark:bg-white/[0.06] font-medium"
+          : "border border-transparent hover:border-[hsl(var(--border))] dark:hover:border-white/10"
+      ].join(" ")}
+    >
+      {label}
+    </button>
+  )
+}
 
-            <div className="mt-2 space-y-1.5">
-              <Row label="Temp"  value={`${b.r.temp.toFixed(1)}°C`} dot={colorFor(t)}  valueSize={valueSize} labelSize={labelSize} />
-              <Row label="Moist" value={`${b.r.moist.toFixed(1)}%`} dot={colorFor(m)} valueSize={valueSize} labelSize={labelSize} />
-              <Row label="pH"    value={b.r.ph.toFixed(1)}         dot={colorFor(p)}  valueSize={valueSize} labelSize={labelSize} />
-            </div>
+function KpiCard({
+  title, unit, color, status, values
+}:{
+  title:string
+  unit:string
+  color:string
+  status: Status
+  values: { avg:number; min:number; max:number }
+}) {
+  return (
+    <section className="card card-live p-5 overflow-hidden">
+      <div className="card-shimmer" />
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm md:text-base font-semibold">{title}</h4>
+            <span
+              className="px-2 py-0.5 rounded-full text-[11px] font-semibold border"
+              style={{ color, borderColor: color+"55", background: color+"10" }}
+            >
+              {status === "ok" ? "OK" : status === "low" ? "Low" : "High"}
+            </span>
           </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function Row({
-  label, value, dot, valueSize, labelSize
-}:{
-  label:string; value:string; dot:string; valueSize:number; labelSize:number
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: dot }} />
-        <span className="text-gray-700 dark:text-gray-200" style={{ fontSize: labelSize }}>{label}</span>
+          <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
+            <KV label="Avg" value={`${values.avg.toFixed(1)}${unit}`} />
+            <KV label="Min" value={`${values.min.toFixed(1)}${unit}`} />
+            <KV label="Max" value={`${values.max.toFixed(1)}${unit}`} />
+          </div>
+        </div>
       </div>
-      <div className="font-semibold tabular-nums" style={{ fontSize: valueSize }}>{value}</div>
+    </section>
+  )
+}
+
+function NpkKpiCard({
+  n, p, k, status
+}:{ n:number; p:number; k:number; status:{ n:Status; p:Status; k:Status } }) {
+  const item = (label:string, v:number, s:Status) => (
+    <div className="flex items-center justify-between rounded-lg border px-3 py-2"
+         style={{ borderColor: colorFor(s)+"55", background: colorFor(s)+"0F" }}>
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colorFor(s) }} />
+        <span className="text-xs opacity-80">{label}</span>
+      </div>
+      <div className="font-semibold tabular-nums">{v}</div>
+    </div>
+  )
+  return (
+    <section className="card card-live p-5 overflow-hidden">
+      <div className="card-shimmer" />
+      <h4 className="text-sm md:text-base font-semibold">NPK</h4>
+      <div className="mt-3 grid grid-cols-3 gap-3">
+        {item("N", n, status.n)}
+        {item("P", p, status.p)}
+        {item("K", k, status.k)}
+      </div>
+      <div className="mt-2 text-xs opacity-70">Units based on your NPK sensor (e.g., ppm / a.u.).</div>
+    </section>
+  )
+}
+
+function KV({ label, value }: { label:string; value:string }) {
+  return (
+    <div>
+      <div className="text-xs opacity-70">{label}</div>
+      <div className="font-semibold tabular-nums">{value}</div>
     </div>
   )
 }
 
-function LegendDot({ className }: { className: string }) {
-  return <span className={["inline-block w-2 h-2 rounded-full", className].join(" ")} />
-}
-
-/* ---------- Responsive chart card ---------- */
 function ChartCard({
   title, unit, color, data, bigValue
 }:{
@@ -214,9 +327,11 @@ function ChartCard({
   )
 }
 
+/* tiny responsive line/area chart (no external libs) */
 function AutoChart({ data, stroke }:{ data:number[]; stroke:string }) {
   const ref = React.useRef<HTMLDivElement|null>(null)
   const [size, setSize] = React.useState({ w: 900, h: 220 })
+
   React.useEffect(() => {
     const update = () => {
       const w = ref.current?.clientWidth ?? 900
@@ -231,10 +346,10 @@ function AutoChart({ data, stroke }:{ data:number[]; stroke:string }) {
 
   const PAD = 16
   const { w:W, h:H } = size
-  const min = Math.min(...(data.length ? data : [0]))
-  const max = Math.max(...(data.length ? data : [1]))
-  const lo = min - (max-min)*0.15
-  const hi = max + (max-min)*0.15 || 1
+  const minV = Math.min(...(data.length ? data : [0]))
+  const maxV = Math.max(...(data.length ? data : [1]))
+  const lo = minV - (maxV-minV)*0.15
+  const hi = maxV + (maxV-minV)*0.15 || 1
   const norm = (v:number) => (1 - (v - lo) / (hi - lo)) * (H - PAD*2) + PAD
   const step = (W - PAD*2) / Math.max(1, data.length - 1)
 
@@ -256,19 +371,13 @@ function AutoChart({ data, stroke }:{ data:number[]; stroke:string }) {
             <stop offset="100%" stopColor={stroke} stopOpacity="0.06" />
           </linearGradient>
         </defs>
-
-        {/* grid */}
         <g opacity=".16" stroke="currentColor">
           <line x1={PAD} y1={PAD} x2={W-PAD} y2={PAD} />
           <line x1={PAD} y1={H/2} x2={W-PAD} y2={H/2} />
           <line x1={PAD} y1={H-PAD} x2={W-PAD} y2={H-PAD} />
         </g>
-
-        {/* area + line */}
         {data.length > 1 && <path d={area} fill="url(#lineGradAuto)" />}
         {data.length > 1 && <path d={d} fill="none" stroke={stroke} strokeWidth="2.75" strokeLinejoin="round" strokeLinecap="round" />}
-
-        {/* last dot */}
         {data.length > 0 && (
           <circle cx={PAD+(data.length-1)*step} cy={norm(data[data.length-1])} r="3.8" fill={stroke} />
         )}

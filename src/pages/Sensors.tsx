@@ -1,4 +1,19 @@
 import React from "react"
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  Timestamp,
+  limit as qlimit,
+} from "firebase/firestore"
+import { db } from "../lib/firebase"
+
+/* ----------------------------- Config --------------------------------- */
+
+// hard-code for now; later pass via props/state/route (e.g. "?dev=esp32-001")
+const DEVICE_ID = "esp32-001"
 
 /* --------------------------- Types & helpers --------------------------- */
 
@@ -10,15 +25,15 @@ type Sample = {
   p: number
   k: number
 }
-
 type Status = "ok" | "low" | "high"
+type RangeKey = "live" | "1h" | "24h" | "7d"
 
 const clamp = (v:number, lo:number, hi:number) => Math.max(lo, Math.min(hi, v))
 const avg = (arr:number[]) => (arr.length ? Number((arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)) : 0)
-const colorFor = (s:Status) => s==="ok" ? "#10b981" : s==="low" ? "#38bdf8" : "#f59e0b"
+const colorFor = (s:Status) => (s==="ok" ? "#10b981" : s==="low" ? "#38bdf8" : "#f59e0b")
 const statusFor = (v:number, min:number, max:number):Status => (v<min ? "low" : v>max ? "high" : "ok")
 
-/** Internal defaults (can be moved to Settings later if you like) */
+/** Internal defaults (can be moved to Settings later) */
 const RANGES = {
   temp:   { min: 15, max: 65 },
   moist:  { min: 40, max: 80 },
@@ -27,25 +42,28 @@ const RANGES = {
   k:      { min: 100, max: 800 },
 }
 
-/** Time windows (in ms) for the range switcher */
+/** Time windows (ms) */
 const WINDOWS: Record<RangeKey, number> = {
-  live:  30 * 60 * 1000,     // last 30 minutes
+  live:  30 * 60 * 1000,
   "1h":  60 * 60 * 1000,
   "24h": 24 * 60 * 60 * 1000,
   "7d":  7  * 24 * 60 * 60 * 1000,
 }
-type RangeKey = "live" | "1h" | "24h" | "7d"
 
-/* --------------------------- Live data (mock) -------------------------- */
-/** Simulates a sensor stream. Swap with your real feed later. */
-function useSensorStream() {
+/* ---------------------- Firestore history hook ------------------------ */
+/** Streams historical samples from sensor_readings/{deviceId}/readings. Falls back to SIM until live arrives. */
+function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID) {
   const [samples, setSamples] = React.useState<Sample[]>([])
-  const MAX = 5000 // ring buffer
+  const [mode, setMode] = React.useState<"firebase"|"sim">("sim")
 
   React.useEffect(() => {
-    let alive = true
-    // seed a bit of history so charts aren’t empty
-    if (samples.length === 0) {
+    let simTimer: number | undefined
+    const MAX = 5000
+    const cutoffDate = new Date(Date.now() - WINDOWS[range])
+
+    // seed & tick SIM until we see valid Firestore data
+    const startSim = () => {
+      if (simTimer) return
       const now = Date.now()
       let temp = 48, moist = 62, n = 420, p = 140, k = 380
       const seeded: Sample[] = []
@@ -56,44 +74,86 @@ function useSensorStream() {
         p = clamp(p + (Math.random()-0.5)*6,  RANGES.p.min/2, RANGES.p.max*1.2)
         k = clamp(k + (Math.random()-0.5)*14, RANGES.k.min/2, RANGES.k.max*1.2)
         seeded.push({
-          ts: now - i*12000, temp: Number(temp.toFixed(1)), moist: Number(moist.toFixed(1)),
+          ts: now - i*12000,
+          temp: +temp.toFixed(1),
+          moist: +moist.toFixed(1),
           n: Math.round(n), p: Math.round(p), k: Math.round(k)
         })
       }
       setSamples(seeded)
+      setMode("sim")
+      simTimer = window.setInterval(() => {
+        setSamples(s => {
+          const last = s.at(-1) ?? { ts: Date.now(), temp:48, moist:62, n:420, p:140, k:380 }
+          const next: Sample = {
+            ts: Date.now(),
+            temp:  +clamp(last.temp  + (Math.random()-0.5)*1.0, 20, 70).toFixed(1),
+            moist: +clamp(last.moist + (Math.random()-0.5)*1.2, 25, 90).toFixed(1),
+            n: Math.round(clamp(last.n + (Math.random()-0.5)*18, RANGES.n.min/2, RANGES.n.max*1.2)),
+            p: Math.round(clamp(last.p + (Math.random()-0.5)*6,  RANGES.p.min/2, RANGES.p.max*1.2)),
+            k: Math.round(clamp(last.k + (Math.random()-0.5)*14, RANGES.k.min/2, RANGES.k.max*1.2)),
+          }
+          return [...s.slice(-(MAX-1)), next]
+        })
+      }, 9000) as unknown as number
     }
 
-    const id = setInterval(() => {
-      if (!alive) return
-      const last = samples.at(-1) ?? {
-        ts: Date.now(),
-        temp: 48, moist: 62, n: 420, p: 140, k: 380
-      }
-      const next: Sample = {
-        ts: Date.now(),
-        temp:  Number(clamp(last.temp  + (Math.random()-0.5)*1.0, 20, 70).toFixed(1)),
-        moist: Number(clamp(last.moist + (Math.random()-0.5)*1.2, 25, 90).toFixed(1)),
-        n: Math.round(clamp(last.n + (Math.random()-0.5)*18, RANGES.n.min/2, RANGES.n.max*1.2)),
-        p: Math.round(clamp(last.p + (Math.random()-0.5)*6,  RANGES.p.min/2, RANGES.p.max*1.2)),
-        k: Math.round(clamp(last.k + (Math.random()-0.5)*14, RANGES.k.min/2, RANGES.k.max*1.2)),
-      }
-      setSamples(s => [...s.slice(-(MAX-1)), next])
-    }, 9000)
+    // 🔴 Query device subcollection: sensor_readings/{deviceId}/readings
+    const ref = collection(db, "sensor_readings", deviceId, "readings")
+    const q = query(
+      ref,
+      where("updatedAt", ">=", Timestamp.fromDate(cutoffDate)),
+      orderBy("updatedAt", "asc"),
+      qlimit(range === "7d" ? 5000 : range === "24h" ? 3000 : 1000)
+    )
 
-    return () => { alive = false; clearInterval(id) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    let sawValid = false
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const rows: Sample[] = snap.docs.map(d => {
+          const x = d.data() as any
+          return {
+            ts: x.updatedAt?.toMillis?.() ?? Date.now(),
+            temp:  Number(x.tempC ?? x.temperature),
+            moist: Number(x.moisturePct ?? x.moisture),
+            n:     Number(x.npk?.n),
+            p:     Number(x.npk?.p),
+            k:     Number(x.npk?.k),
+          }
+        }).filter(r => [r.temp, r.moist, r.n, r.p, r.k].every(Number.isFinite))
 
-  return samples
+        if (rows.length > 0) {
+          sawValid = true
+          setMode("firebase")
+          setSamples(rows.slice(-MAX))
+          if (simTimer) { window.clearInterval(simTimer); simTimer = undefined }
+        } else if (!sawValid && !simTimer) {
+          startSim()
+        }
+      },
+      () => { if (!simTimer) startSim() }
+    )
+
+    // show SIM immediately until first live snapshot
+    startSim()
+
+    return () => {
+      unsub()
+      if (simTimer) window.clearInterval(simTimer)
+    }
+  }, [range, deviceId])
+
+  return { samples, mode }
 }
 
 /* ------------------------------- Page ---------------------------------- */
 
 export default function Sensors() {
-  const samples = useSensorStream()
-
   // range selector
   const [range, setRange] = React.useState<RangeKey>("live")
+  const { samples, mode } = useSensorHistory(range, DEVICE_ID)
+
   const cutoff = Date.now() - WINDOWS[range]
   const windowed = React.useMemo(
     () => samples.filter(s => s.ts >= cutoff),
@@ -127,15 +187,12 @@ export default function Sensors() {
   // actionable insights
   const insights = React.useMemo(() => {
     const list: string[] = []
-
     if (sMoist === "low")  list.push("Moisture is trending low—consider watering lightly to reach 60–70%.")
     if (sMoist === "high") list.push("Moisture is high—add dry bedding and turn the bin to improve airflow.")
-
     if (sTemp === "high")  list.push("Temperature is elevated—mix the bedding and reduce feed volume.")
-    if (sTemp === "low")   list.push("Temperature is low—ensure the bin is insulated and avoid over-watering.")
-
+    if (sTemp === "low")   list.push("Temperature is low—insulate the bin and avoid over-watering.")
     const npkOkay = [sN,sP,sK].every(s => s === "ok")
-    if (!npkOkay) list.push("NPK balance is off—add carbon material for high N, or a light feed for low N/P/K.")
+    if (!npkOkay) list.push("NPK balance is off—add carbon for high N, or a light feed for low N/P/K.")
     if (list.length === 0) list.push("All parameters look healthy. Maintain current routine.")
     return list
   }, [sTemp, sMoist, sN, sP, sK])
@@ -146,9 +203,14 @@ export default function Sensors() {
       <section className="card card-live relative p-5 md:p-6 overflow-hidden">
         <div className="card-shimmer" />
         <div className="corner-glow top-[-3rem] right-[-3rem]" />
-        <h2 className="text-base md:text-lg font-semibold">Sensors</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-base md:text-lg font-semibold">Sensors</h2>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-[hsl(var(--border))] dark:border-white/10 opacity-80">
+            {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
+          </span>
+        </div>
         <p className="text-sm text-gray-700 dark:text-gray-200">
-          Live overview with Temperature, Moisture, and NPK. Use the range switcher to view recent history.
+          Live + historical Temperature, Moisture, and NPK. Use the range switcher to view recent history.
         </p>
       </section>
 
@@ -167,24 +229,9 @@ export default function Sensors() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <KpiCard
-          title="Temperature"
-          unit="°C"
-          color={colorFor(sTemp)}
-          status={sTemp}
-          values={{ avg: kpi.temp.avg, min: kpi.temp.min, max: kpi.temp.max }}
-        />
-        <KpiCard
-          title="Moisture"
-          unit="%"
-          color={colorFor(sMoist)}
-          status={sMoist}
-          values={{ avg: kpi.moist.avg, min: kpi.moist.min, max: kpi.moist.max }}
-        />
-        <NpkKpiCard
-          n={kpi.n.avg} p={kpi.p.avg} k={kpi.k.avg}
-          status={{ n: sN, p: sP, k: sK }}
-        />
+        <KpiCard title="Temperature" unit="°C" color={colorFor(sTemp)}  status={sTemp}  values={{ avg: kpi.temp.avg,  min: kpi.temp.min,  max: kpi.temp.max }} />
+        <KpiCard title="Moisture"    unit="%"  color={colorFor(sMoist)} status={sMoist} values={{ avg: kpi.moist.avg, min: kpi.moist.min, max: kpi.moist.max }} />
+        <NpkKpiCard n={kpi.n.avg} p={kpi.p.avg} k={kpi.k.avg} status={{ n: sN, p: sP, k: sK }} />
       </div>
 
       {/* Charts */}
@@ -219,9 +266,7 @@ export default function Sensors() {
 
 /* ------------------------------ Bits & UI ------------------------------ */
 
-function RangeButton({ label, active, onClick }:{
-  label:string; active:boolean; onClick:()=>void
-}) {
+function RangeButton({ label, active, onClick }:{ label:string; active:boolean; onClick:()=>void }) {
   return (
     <button
       onClick={onClick}
@@ -239,13 +284,7 @@ function RangeButton({ label, active, onClick }:{
 
 function KpiCard({
   title, unit, color, status, values
-}:{
-  title:string
-  unit:string
-  color:string
-  status: Status
-  values: { avg:number; min:number; max:number }
-}) {
+}:{ title:string; unit:string; color:string; status: Status; values: { avg:number; min:number; max:number } }) {
   return (
     <section className="card card-live p-5 overflow-hidden">
       <div className="card-shimmer" />
@@ -253,10 +292,7 @@ function KpiCard({
         <div>
           <div className="flex items-center gap-2">
             <h4 className="text-sm md:text-base font-semibold">{title}</h4>
-            <span
-              className="px-2 py-0.5 rounded-full text-[11px] font-semibold border"
-              style={{ color, borderColor: color+"55", background: color+"10" }}
-            >
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold border" style={{ color, borderColor: color+"55", background: color+"10" }}>
               {status === "ok" ? "OK" : status === "low" ? "Low" : "High"}
             </span>
           </div>
@@ -271,12 +307,9 @@ function KpiCard({
   )
 }
 
-function NpkKpiCard({
-  n, p, k, status
-}:{ n:number; p:number; k:number; status:{ n:Status; p:Status; k:Status } }) {
+function NpkKpiCard({ n, p, k, status }:{ n:number; p:number; k:number; status:{ n:Status; p:Status; k:Status } }) {
   const item = (label:string, v:number, s:Status) => (
-    <div className="flex items-center justify-between rounded-lg border px-3 py-2"
-         style={{ borderColor: colorFor(s)+"55", background: colorFor(s)+"0F" }}>
+    <div className="flex items-center justify-between rounded-lg border px-3 py-2" style={{ borderColor: colorFor(s)+"55", background: colorFor(s)+"0F" }}>
       <div className="flex items-center gap-2">
         <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colorFor(s) }} />
         <span className="text-xs opacity-80">{label}</span>
@@ -307,11 +340,7 @@ function KV({ label, value }: { label:string; value:string }) {
   )
 }
 
-function ChartCard({
-  title, unit, color, data, bigValue
-}:{
-  title:string; unit:string; color:string; data:number[]; bigValue?:number
-}) {
+function ChartCard({ title, unit, color, data, bigValue }:{ title:string; unit:string; color:string; data:number[]; bigValue?:number }) {
   return (
     <section className="card card-live p-5 overflow-hidden animate-fade-in-up">
       <div className="card-shimmer" />
@@ -378,9 +407,7 @@ function AutoChart({ data, stroke }:{ data:number[]; stroke:string }) {
         </g>
         {data.length > 1 && <path d={area} fill="url(#lineGradAuto)" />}
         {data.length > 1 && <path d={d} fill="none" stroke={stroke} strokeWidth="2.75" strokeLinejoin="round" strokeLinecap="round" />}
-        {data.length > 0 && (
-          <circle cx={PAD+(data.length-1)*step} cy={norm(data[data.length-1])} r="3.8" fill={stroke} />
-        )}
+        {data.length > 0 && <circle cx={PAD+(data.length-1)*step} cy={norm(data[data.length-1])} r="3.8" fill={stroke} />}
       </svg>
     </div>
   )

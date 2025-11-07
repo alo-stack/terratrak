@@ -1,5 +1,7 @@
 import React from "react"
 import { Link } from "react-router-dom"
+import { doc, onSnapshot } from "firebase/firestore"
+import { db } from "../lib/firebase"   // your firebase config
 
 /* --------------------------- Types & helpers --------------------------- */
 
@@ -17,9 +19,9 @@ const THRESHOLDS_KEY = "tt_thresholds"
 
 type StatusKey = "ok" | "warn" | "alert"
 const statusColor: Record<StatusKey, string> = {
-  ok: "#10b981",   // emerald
-  warn: "#f59e0b", // amber
-  alert: "#ef4444" // red
+  ok: "#10b981",
+  warn: "#f59e0b",
+  alert: "#ef4444",
 }
 const statusDotClass: Record<StatusKey, string> = {
   ok: "bg-emerald-500",
@@ -41,51 +43,105 @@ const sFor = (v:number, lo:number, hi:number): StatusKey => {
   return "ok"
 }
 
-/* ------------------------ Simulated live store ------------------------ */
+/* --------------------------------------------------------------------- */
+/*            Live series hook – Firestore first, SIM as fallback        */
+/* --------------------------------------------------------------------- */
+
 function useLiveSeries() {
   const [temp, setTemp]   = React.useState<number[]>([])
   const [moist, setMoist] = React.useState<number[]>([])
   const [n, setN]         = React.useState<number[]>([])
   const [p, setP]         = React.useState<number[]>([])
   const [k, setK]         = React.useState<number[]>([])
+  const [mode, setMode]   = React.useState<"firebase"|"sim">("sim")
 
+  // seed with simulated history so cards aren’t empty
   React.useEffect(() => {
-    let alive = true
-    const seedOnce = () => {
-      if (temp.length) return
-      const t:number[] = [], m:number[] = []
-      const ns:number[] = [], ps:number[] = [], ks:number[] = []
-      let tv=48, mv=62, nv=120, pv=55, kv=130
-      for (let i=0;i<seriesWindow;i++){
-        tv = clamp(tv + (Math.random()-0.5)*1.1, 25, 70)
-        mv = clamp(mv + (Math.random()-0.5)*1.3, 30, 90)
-        nv = clamp(nv + (Math.random()-0.5)*6,  30, 260)
-        pv = clamp(pv + (Math.random()-0.5)*4,  10, 150)
-        kv = clamp(kv + (Math.random()-0.5)*6,  30, 260)
-        t.push(Number(tv.toFixed(1)))
-        m.push(Number(mv.toFixed(1)))
-        ns.push(Math.round(nv)); ps.push(Math.round(pv)); ks.push(Math.round(kv))
-      }
-      setTemp(t); setMoist(m); setN(ns); setP(ps); setK(ks)
+    if (temp.length) return
+    const t:number[] = [], m:number[] = []
+    const ns:number[] = [], ps:number[] = [], ks:number[] = []
+    let tv=48, mv=62, nv=120, pv=55, kv=130
+    for (let i=0;i<seriesWindow;i++){
+      tv = clamp(tv + (Math.random()-0.5)*1.1, 25, 70)
+      mv = clamp(mv + (Math.random()-0.5)*1.3, 30, 90)
+      nv = clamp(nv + (Math.random()-0.5)*6,  30, 260)
+      pv = clamp(pv + (Math.random()-0.5)*4,  10, 150)
+      kv = clamp(kv + (Math.random()-0.5)*6,  30, 260)
+      t.push(Number(tv.toFixed(1)))
+      m.push(Number(mv.toFixed(1)))
+      ns.push(Math.round(nv)); ps.push(Math.round(pv)); ks.push(Math.round(kv))
     }
-    seedOnce()
-    const id = setInterval(() => {
-      if (!alive) return
-      const t = clamp((temp.at(-1) ?? 48) + (Math.random()-0.5)*1.0, 25, 70)
-      const m = clamp((moist.at(-1) ?? 62) + (Math.random()-0.5)*1.2, 30, 90)
-      const nv = clamp((n.at(-1) ?? 120) + (Math.random()-0.5)*6, 30, 260)
-      const pv = clamp((p.at(-1) ?? 55)  + (Math.random()-0.5)*4, 10, 150)
-      const kv = clamp((k.at(-1) ?? 130) + (Math.random()-0.5)*6, 30, 260)
-      setTemp(prev => append(prev, Number(t.toFixed(1))))
-      setMoist(prev => append(prev, Number(m.toFixed(1))))
-      setN(prev => append(prev, Math.round(nv)))
-      setP(prev => append(prev, Math.round(pv)))
-      setK(prev => append(prev, Math.round(kv)))
-    }, 9000)
-    return () => { alive=false; clearInterval(id) }
-  }, []) // eslint-disable-line
+    setTemp(t); setMoist(m); setN(ns); setP(ps); setK(ks)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  return { temp, moist, n, p, k }
+  // attach to Firestore `/sensor_readings/latest`; if it never yields valid data, keep SIM ticking
+  React.useEffect(() => {
+    let simTimer: number | undefined
+    let receivedLive = false
+
+    // SIM ticker (runs until we receive valid Firestore data)
+    const startSim = () => {
+      if (simTimer) return
+      simTimer = window.setInterval(() => {
+        const t = clamp((temp.at(-1) ?? 48) + (Math.random()-0.5)*1.0, 25, 70)
+        const m = clamp((moist.at(-1) ?? 62) + (Math.random()-0.5)*1.2, 30, 90)
+        const nv = clamp((n.at(-1) ?? 120) + (Math.random()-0.5)*6, 30, 260)
+        const pv = clamp((p.at(-1) ?? 55)  + (Math.random()-0.5)*4, 10, 150)
+        const kv = clamp((k.at(-1) ?? 130) + (Math.random()-0.5)*6, 30, 260)
+        setTemp(prev => append(prev, Number(t.toFixed(1))))
+        setMoist(prev => append(prev, Number(m.toFixed(1))))
+        setN(prev => append(prev, Math.round(nv)))
+        setP(prev => append(prev, Math.round(pv)))
+        setK(prev => append(prev, Math.round(kv)))
+      }, 9000) as unknown as number
+    }
+
+    // start in SIM until proven LIVE
+    setMode("sim")
+    startSim()
+
+    const ref = doc(db, "sensor_readings", "latest")
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) return
+        const d = snap.data() as any
+
+        // Accept either {tempC, moisturePct} OR {temperature, moisture}
+        const tVal = Number(d?.tempC ?? d?.temperature)
+        const mVal = Number(d?.moisturePct ?? d?.moisture)
+        const nVal = Number(d?.npk?.n)
+        const pVal = Number(d?.npk?.p)
+        const kVal = Number(d?.npk?.k)
+
+        const valid = [tVal,mVal,nVal,pVal,kVal].every(v => Number.isFinite(v))
+        if (!valid) return
+
+        if (!receivedLive) {
+          receivedLive = true
+          setMode("firebase")
+          if (simTimer) { window.clearInterval(simTimer); simTimer = undefined }
+        }
+
+        setTemp(prev => append(prev, Number(tVal.toFixed(1))))
+        setMoist(prev => append(prev, Number(mVal.toFixed(1))))
+        setN(prev => append(prev, Math.round(nVal)))
+        setP(prev => append(prev, Math.round(pVal)))
+        setK(prev => append(prev, Math.round(kVal)))
+      },
+      // onError: stay on SIM
+      () => { setMode("sim"); if (!simTimer) startSim() }
+    )
+
+    return () => {
+      unsub()
+      if (simTimer) window.clearInterval(simTimer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // attach once
+
+  return { temp, moist, n, p, k, mode }
 }
 
 /* ------------------------------ Component ------------------------------ */
@@ -115,8 +171,8 @@ export default function Overview() {
     }
   }, [])
 
-  // live series (mock for now)
-  const { temp, moist, n, p, k } = useLiveSeries()
+  // live series (Firestore if available; SIM otherwise)
+  const { temp, moist, n, p, k, mode } = useLiveSeries()
 
   // summary
   const summary = {
@@ -171,9 +227,11 @@ export default function Overview() {
         <div className="card-shimmer" />
         <div className="corner-glow top-[-3rem] right-[-3rem]" />
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
+          <div className="flex items-center gap-2">
             <h1 className="text-base md:text-lg font-semibold">Overview</h1>
-            <p className="text-sm text-gray-700 dark:text-gray-200">Real-time health, trends, and alerts.</p>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-[hsl(var(--border))] dark:border-white/10 opacity-80">
+              {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm opacity-80">Overall health</span>
@@ -187,9 +245,8 @@ export default function Overview() {
         </div>
       </section>
 
-      {/* Summaries + Alerts (mobile-first grid) */}
+      {/* Summaries + Alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Summaries */}
         <section className="lg:col-span-8 space-y-4">
           <SummaryRow
             title="Temperature"
@@ -209,8 +266,6 @@ export default function Overview() {
             sparkColor="#38bdf8"
             series={moist}
           />
-
-          {/* NPK card: colored! */}
           <NPKRow
             data={summary.npk}
             status={npkWorst}
@@ -337,7 +392,7 @@ function NPKRow({
               <h3 className="text-sm md:text-base font-semibold">NPK (ppm)</h3>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold border"
                     style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
-                {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
+                {status === "ok" ? "OK" : "Watch/Alert"}
               </span>
             </div>
 
@@ -368,7 +423,6 @@ function NPKRow({
         </div>
       </div>
 
-      {/* colored gradient band (so NPK “has color” like the others) */}
       <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-green-400/30 via-cyan-400/20 to-amber-400/0 pointer-events-none" />
     </section>
   )

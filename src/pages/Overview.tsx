@@ -54,6 +54,7 @@ function useLiveSeries() {
   const [p, setP]         = React.useState<number[]>([])
   const [k, setK]         = React.useState<number[]>([])
   const [mode, setMode]   = React.useState<"firebase"|"sim">("sim")
+  const [lastUpdate, setLastUpdate] = React.useState<number|null>(null)
 
   // seed with simulated history so cards aren’t empty
   React.useEffect(() => {
@@ -124,6 +125,14 @@ function useLiveSeries() {
           if (simTimer) { window.clearInterval(simTimer); simTimer = undefined }
         }
 
+        // Get timestamp from the data, fallback to server timestamp if available, or current time as last resort
+        const timestamp = snap.data()?.updatedAt?.toMillis() || 
+                         snap.data()?.timestamp?.toMillis() || 
+                         (snap.metadata.hasPendingWrites ? undefined : Date.now())
+        if (timestamp) {
+          setLastUpdate(timestamp)
+        }
+        
         setTemp(prev => append(prev, Number(tVal.toFixed(1))))
         setMoist(prev => append(prev, Number(mVal.toFixed(1))))
         setN(prev => append(prev, Math.round(nVal)))
@@ -141,7 +150,7 @@ function useLiveSeries() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // attach once
 
-  return { temp, moist, n, p, k, mode }
+  return { temp, moist, n, p, k, mode, lastUpdate }
 }
 
 /* ------------------------------ Component ------------------------------ */
@@ -172,7 +181,7 @@ export default function Overview() {
   }, [])
 
   // live series (Firestore if available; SIM otherwise)
-  const { temp, moist, n, p, k, mode } = useLiveSeries()
+  const { temp, moist, n, p, k, mode, lastUpdate } = useLiveSeries()
 
   // summary
   const summary = {
@@ -227,11 +236,22 @@ export default function Overview() {
         <div className="card-shimmer" />
         <div className="corner-glow top-[-3rem] right-[-3rem]" />
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <h1 className="text-base md:text-lg font-semibold">Overview</h1>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-[hsl(var(--border))] dark:border-white/10 opacity-80">
-              {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
-            </span>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <h1 className="text-base md:text-lg font-semibold">Overview (24 Hours)</h1>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-[hsl(var(--border))] dark:border-white/10 opacity-80">
+                {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
+              </span>
+            </div>
+            {mode === "sim" ? (
+              <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+                ESP32 not transmitting data, in simulation mode
+              </p>
+            ) : lastUpdate && (
+              <p className="mt-1 text-sm text-emerald-600 dark:text-emerald-400">
+                ESP32 transmitted data last {new Date(lastUpdate).toLocaleString()}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm opacity-80">Overall health</span>

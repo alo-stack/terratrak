@@ -209,6 +209,19 @@ export default function Sensors() {
             {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
           </span>
         </div>
+        {mode === "sim" ? (
+          <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+            ESP32 not transmitting data, in simulation mode.
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-emerald-600 dark:text-emerald-400">
+            ESP32 transmitted data last{" "}
+            {samples.length > 0 
+              ? new Date(samples[samples.length - 1].ts).toLocaleString()
+              : "N/A"
+            }
+          </p>
+        )}
         <p className="text-sm text-gray-700 dark:text-gray-200">
           Live + historical Temperature, Moisture, and NPK. Use the range switcher to view recent history.
         </p>

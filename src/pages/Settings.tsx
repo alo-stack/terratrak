@@ -3,18 +3,19 @@ import React from "react"
 /* ------------------------------------------------------------------ */
 /* Types & constants                                                   */
 /* ------------------------------------------------------------------ */
+type ThresholdField = { min: number | ""; max: number | "" }
 type Thresholds = {
-  temperature: { min: number | ""; max: number | "" }
-  moisture:    { min: number | ""; max: number | "" }
-  n:           { min: number | ""; max: number | "" } // Nitrogen (ppm)
-  p:           { min: number | ""; max: number | "" } // Phosphorus (ppm)
-  k:           { min: number | ""; max: number | "" } // Potassium (ppm)
+  temperature: ThresholdField
+  moisture:    ThresholdField
+  n:           ThresholdField // Nitrogen (ppm)
+  p:           ThresholdField // Phosphorus (ppm)
+  k:           ThresholdField // Potassium (ppm)
 }
 
 const THRESHOLDS_KEY   = "tt_thresholds"
 const ALERT_EMAIL_KEY  = "tt_alert_email"
 
-const DEFAULTS: Thresholds = {
+const DEFAULTS = {
   temperature: { min: 15, max: 65 }, // °C
   moisture:    { min: 40, max: 80 }, // % RH
   n:           { min: 150, max: 900 }, // ppm (tune to your sensor scale)
@@ -22,23 +23,36 @@ const DEFAULTS: Thresholds = {
   k:           { min: 100, max: 800 }, // ppm
 }
 
-const asNum = (v: any, d: number) => (Number.isFinite(Number(v)) ? Number(v) : d)
+const asNum = (v: any): number | "" => {
+  if (v === "" || v === undefined || v === null) return ""
+  const n = Number(v)
+  return Number.isFinite(n) ? n : ""
+}
 
 /** Merge any previously-saved structure (including legacy `ph`) into the new NPK structure. */
 function migrateThresholds(saved: any): Thresholds {
   const t = typeof saved === "string" ? JSON.parse(saved) : (saved || {})
   return {
     temperature: {
-      min: asNum(t?.temperature?.min, DEFAULTS.temperature.min),
-      max: asNum(t?.temperature?.max, DEFAULTS.temperature.max),
+      min: asNum(t?.temperature?.min) || DEFAULTS.temperature.min,
+      max: asNum(t?.temperature?.max) || DEFAULTS.temperature.max,
     },
     moisture: {
-      min: asNum(t?.moisture?.min, DEFAULTS.moisture.min),
-      max: asNum(t?.moisture?.max, DEFAULTS.moisture.max),
+      min: asNum(t?.moisture?.min) || DEFAULTS.moisture.min,
+      max: asNum(t?.moisture?.max) || DEFAULTS.moisture.max,
     },
-    n: { min: asNum(t?.n?.min, DEFAULTS.n.min), max: asNum(t?.n?.max, DEFAULTS.n.max) },
-    p: { min: asNum(t?.p?.min, DEFAULTS.p.min), max: asNum(t?.p?.max, DEFAULTS.p.max) },
-    k: { min: asNum(t?.k?.min, DEFAULTS.k.min), max: asNum(t?.k?.max, DEFAULTS.k.max) },
+    n: {
+      min: asNum(t?.n?.min) || DEFAULTS.n.min,
+      max: asNum(t?.n?.max) || DEFAULTS.n.max
+    },
+    p: {
+      min: asNum(t?.p?.min) || DEFAULTS.p.min,
+      max: asNum(t?.p?.max) || DEFAULTS.p.max
+    },
+    k: {
+      min: asNum(t?.k?.min) || DEFAULTS.k.min,
+      max: asNum(t?.k?.max) || DEFAULTS.k.max
+    },
   }
 }
 

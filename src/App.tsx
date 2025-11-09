@@ -9,7 +9,7 @@ import About from './pages/About'
 
 export default function App(){
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/terratrak">
       <div className="min-h-screen flex">
         <SidebarNav />
 

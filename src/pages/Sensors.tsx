@@ -10,7 +10,7 @@ import {
   limit as qlimit,
 } from "firebase/firestore"
 import { db } from "../lib/firebase"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion, AnimatePresence, easeOut } from "framer-motion"
 
 /* ----------------------------- Config --------------------------------- */
 const DEVICE_ID = "esp32-001"
@@ -246,7 +246,7 @@ export default function Sensors() {
   const cardMotion = {
     initial: { opacity: 0, y: 20, scale: 0.97 },
     animate: { opacity: 1, y: 0, scale: 1 },
-    transition: { duration: 0.4, ease: "easeOut" },
+    transition: { duration: 0.4, ease: easeOut },
     whileHover: { scale: 1.02, y: -4, boxShadow: "0 10px 30px rgba(0,0,0,0.1)" },
   }
 

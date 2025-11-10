@@ -1,7 +1,9 @@
+// Overview.tsx
 import React from "react"
 import { Link } from "react-router-dom"
 import { doc, onSnapshot } from "firebase/firestore"
 import { db } from "../lib/firebase"   // your firebase config
+import { motion, AnimatePresence } from "framer-motion"
 
 /* --------------------------- Types & helpers --------------------------- */
 
@@ -73,7 +75,6 @@ function useLiveSeries() {
       ns.push(Math.round(nv)); ps.push(Math.round(pv)); ks.push(Math.round(kv))
     }
     setTemp(t); setMoist(m); setN(ns); setP(ps); setK(ks)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // attach to Firestore `/sensor_readings/latest`; if it never yields valid data, keep SIM ticking
@@ -81,7 +82,6 @@ function useLiveSeries() {
     let simTimer: number | undefined
     let receivedLive = false
 
-    // SIM ticker (runs until we receive valid Firestore data)
     const startSim = () => {
       if (simTimer) return
       simTimer = window.setInterval(() => {
@@ -109,7 +109,6 @@ function useLiveSeries() {
         if (!snap.exists()) return
         const d = snap.data() as any
 
-        // Accept either {tempC, moisturePct} OR {temperature, moisture}
         const tVal = Number(d?.tempC ?? d?.temperature)
         const mVal = Number(d?.moisturePct ?? d?.moisture)
         const nVal = Number(d?.npk?.n)
@@ -125,21 +124,17 @@ function useLiveSeries() {
           if (simTimer) { window.clearInterval(simTimer); simTimer = undefined }
         }
 
-        // Get timestamp from the data, fallback to server timestamp if available, or current time as last resort
-        const timestamp = snap.data()?.updatedAt?.toMillis() || 
-                         snap.data()?.timestamp?.toMillis() || 
+        const timestamp = snap.data()?.updatedAt?.toMillis() ||
+                         snap.data()?.timestamp?.toMillis() ||
                          (snap.metadata.hasPendingWrites ? undefined : Date.now())
-        if (timestamp) {
-          setLastUpdate(timestamp)
-        }
-        
+        if (timestamp) setLastUpdate(timestamp)
+
         setTemp(prev => append(prev, Number(tVal.toFixed(1))))
         setMoist(prev => append(prev, Number(mVal.toFixed(1))))
         setN(prev => append(prev, Math.round(nVal)))
         setP(prev => append(prev, Math.round(pVal)))
         setK(prev => append(prev, Math.round(kVal)))
       },
-      // onError: stay on SIM
       () => { setMode("sim"); if (!simTimer) startSim() }
     )
 
@@ -147,8 +142,7 @@ function useLiveSeries() {
       unsub()
       if (simTimer) window.clearInterval(simTimer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // attach once
+  }, [])
 
   return { temp, moist, n, p, k, mode, lastUpdate }
 }
@@ -156,7 +150,6 @@ function useLiveSeries() {
 /* ------------------------------ Component ------------------------------ */
 
 export default function Overview() {
-  // thresholds (from Settings, with NPK-safe fallback)
   const thresholds: Thresholds = React.useMemo(() => {
     try {
       const raw = localStorage.getItem(THRESHOLDS_KEY)
@@ -180,10 +173,8 @@ export default function Overview() {
     }
   }, [])
 
-  // live series (Firestore if available; SIM otherwise)
   const { temp, moist, n, p, k, mode, lastUpdate } = useLiveSeries()
 
-  // summary
   const summary = {
     temp:  { avg: avg(temp),  min: min(temp),  max: max(temp)  },
     moist: { avg: avg(moist), min: min(moist), max: max(moist) },
@@ -194,28 +185,22 @@ export default function Overview() {
     },
   }
 
-  // status
   const sTemp  = sFor(summary.temp.avg,  thresholds.temperature.min, thresholds.temperature.max)
   const sMoist = sFor(summary.moist.avg, thresholds.moisture.min,     thresholds.moisture.max)
   const sN     = sFor(summary.npk.n.avg, thresholds.npk.n.min,        thresholds.npk.n.max)
   const sP     = sFor(summary.npk.p.avg, thresholds.npk.p.min,        thresholds.npk.p.max)
   const sK     = sFor(summary.npk.k.avg, thresholds.npk.k.min,        thresholds.npk.k.max)
 
-  const npkWorst: StatusKey =
-    (["alert","warn","ok"] as StatusKey[]).find(k => [sN,sP,sK].includes(k)) || "ok"
+  const npkWorst: StatusKey = (["alert","warn","ok"] as StatusKey[]).find(k => [sN,sP,sK].includes(k)) || "ok"
+  const healthRank: StatusKey = (["alert","warn","ok"] as StatusKey[]).find(k => [sTemp, sMoist, npkWorst].includes(k)) || "ok"
 
-  const healthRank: StatusKey =
-    (["alert","warn","ok"] as StatusKey[]).find(k => [sTemp, sMoist, npkWorst].includes(k)) || "ok"
-
-  // alerts
   const alerts: Array<{ id:string; level:StatusKey; msg:string }> = []
   if (sTemp  !== "ok") alerts.push({ id:"t", level:sTemp,  msg: sTemp==="warn" ? "Temperature nearing threshold" : "Temperature out of range" })
-  if (sMoist !== "ok") alerts.push({ id:"m", level:sMoist, msg: sMoist==="warn" ? "Moisture nearing threshold"     : "Moisture out of range" })
-  if (sN     !== "ok") alerts.push({ id:"n", level:sN,     msg: sN==="warn" ? "Nitrogen nearing threshold"          : "Nitrogen out of range" })
-  if (sP     !== "ok") alerts.push({ id:"p", level:sP,     msg: sP==="warn" ? "Phosphorus nearing threshold"        : "Phosphorus out of range" })
-  if (sK     !== "ok") alerts.push({ id:"k", level:sK,     msg: sK==="warn" ? "Potassium nearing threshold"         : "Potassium out of range" })
+  if (sMoist !== "ok") alerts.push({ id:"m", level:sMoist, msg: sMoist==="warn" ? "Moisture nearing threshold" : "Moisture out of range" })
+  if (sN     !== "ok") alerts.push({ id:"n", level:sN, msg: sN==="warn" ? "Nitrogen nearing threshold" : "Nitrogen out of range" })
+  if (sP     !== "ok") alerts.push({ id:"p", level:sP, msg: sP==="warn" ? "Phosphorus nearing threshold" : "Phosphorus out of range" })
+  if (sK     !== "ok") alerts.push({ id:"k", level:sK, msg: sK==="warn" ? "Potassium nearing threshold" : "Potassium out of range" })
 
-  // rotating tips
   const tips = [
     "Opt for a moist, wrung-out sponge feel—too wet limits air flow.",
     "Shred cardboard (carbon) to balance kitchen scraps (nitrogen).",
@@ -227,46 +212,75 @@ export default function Overview() {
   React.useEffect(() => {
     const id = setInterval(()=> setTipIdx(i => (i+1) % tips.length), 8000)
     return () => clearInterval(id)
-  }, []) // eslint-disable-line
+  }, [])
+
+  const containerVariants = { hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transition: { staggerChildren: 0.06 } } }
+  const cardVariant = { hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transition: { duration: 0.45 } }, hover: { scale: 1.02 } }
+  const alertVariant = { hidden: { opacity: 0, x: -8 }, show: { opacity: 1, x: 0 }, exit: { opacity: 0, x: 8 } }
 
   return (
-    <div className="space-y-4 animate-fade-in-up">
+    <motion.div
+      className="space-y-4 overview-root text-gray-800 dark:text-gray-100"
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+    >
       {/* Header / Health */}
-      <section className="card card-live relative p-4 md:p-6 overflow-hidden">
+      <motion.section className="card card-live relative p-4 md:p-6 overflow-hidden text-gray-800 dark:text-gray-100"
+        variants={cardVariant} whileHover="hover"
+        style={{ willChange: 'transform,opacity' }}
+      >
+        {/* animated gradient blob */}
+        <div aria-hidden className="absolute inset-0 pointer-events-none -z-10">
+          <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 800 160">
+            <defs>
+              <linearGradient id="g1" x1="0" x2="1">
+                <stop offset="0%" stopColor="#6ee7b7" stopOpacity="0.08" />
+                <stop offset="100%" stopColor="#34d399" stopOpacity="0.03" />
+              </linearGradient>
+            </defs>
+            <rect width="800" height="160" fill="url(#g1)" />
+          </svg>
+        </div>
+
         <div className="card-shimmer" />
-        <div className="corner-glow top-[-3rem] right-[-3rem]" />
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex flex-col gap-2">
+          <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base md:text-lg font-semibold">Overview (24 Hours)</h1>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-[hsl(var(--border))] dark:border-white/10 opacity-80">
+              <h1 className="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Overview (24 Hours)
+              </h1>
+              <motion.span className="live-badge px-2 py-0.5 rounded-full text-[10px] font-semibold border opacity-95">
                 {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
-              </span>
+              </motion.span>
             </div>
             {mode === "sim" ? (
-              <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+              <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
                 ESP32 not transmitting data, in simulation mode
               </p>
             ) : lastUpdate && (
-              <p className="mt-1 text-sm text-emerald-600 dark:text-emerald-400">
+              <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
                 ESP32 transmitted data last {new Date(lastUpdate).toLocaleString()}
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
             <span className="text-sm opacity-80">Overall health</span>
-            <span
-              className="px-2.5 py-1 rounded-full text-xs font-semibold"
-              style={{ backgroundColor: statusColor[healthRank] + "22", color: statusColor[healthRank], border: `1px solid ${statusColor[healthRank]}44` }}
+            <motion.span
+              className="px-2.5 py-1 rounded-full text-xs font-semibold health-pill"
+              animate={{ backgroundColor: statusColor[healthRank] + '22', color: statusColor[healthRank] }}
+              style={{ border: `1px solid ${statusColor[healthRank]}44` }}
             >
               {healthRank === "ok" ? "Good" : healthRank === "warn" ? "Watch" : "Attention"}
-            </span>
+            </motion.span>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Summaries + Alerts */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 text-gray-800 dark:text-gray-100">
         <section className="lg:col-span-8 space-y-4">
           <SummaryRow
             title="Temperature"
@@ -296,40 +310,85 @@ export default function Overview() {
         </section>
 
         {/* Alerts & Tips */}
-        <section className="lg:col-span-4 card card-live relative p-4 md:p-6 overflow-hidden">
+        <motion.section className="lg:col-span-4 card card-live relative p-4 md:p-6 overflow-hidden text-gray-800 dark:text-gray-100"
+          variants={cardVariant} whileHover="hover"
+        >
           <div className="card-shimmer" />
-          <div className="corner-glow bottom-[-3rem] left-[-3rem]" />
-          <h3 className="text-sm md:text-base font-semibold">Active alerts</h3>
+          <h3 className="text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">
+            Active alerts
+          </h3>
           <div className="mt-3 space-y-2">
             {alerts.length === 0 && (
-              <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-3 py-2 text-sm opacity-80">
+              <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 opacity-80">
                 No active alerts. All parameters are within range.
               </div>
             )}
-            {alerts.map(a => (
-              <div key={a.id} className="rounded-lg border px-3 py-2 text-sm flex items-center gap-2"
-                   style={{ borderColor: statusColor[a.level]+"55", background: statusColor[a.level]+"10", color: statusColor[a.level] }}>
-                <span className={"w-2 h-2 rounded-full "+statusDotClass[a.level]} />
-                <span className="font-medium">{a.msg}</span>
-              </div>
-            ))}
+            <AnimatePresence>
+              {alerts.map(a => (
+                <motion.div
+                  key={a.id}
+                  className="rounded-lg border px-3 py-2 text-sm flex items-center gap-2 alert-row"
+                  style={{ borderColor: statusColor[a.level]+"55", background: statusColor[a.level]+"10", color: statusColor[a.level] }}
+                  variants={alertVariant}
+                  initial="hidden"
+                  animate="show"
+                  exit="exit"
+                >
+                  <span className={"w-2 h-2 rounded-full "+statusDotClass[a.level]} />
+                  <span className="font-medium">{a.msg}</span>
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
 
           <div className="mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-4">
-            <h4 className="text-sm font-semibold">Vermicomposting tip</h4>
-            <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 transition-opacity duration-300">
-              {tips[tipIdx]}
-            </p>
-            <div className="mt-2 text-xs flex flex-wrap gap-4 opacity-80">
+            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Vermicomposting tip</h4>
+            <div className="mt-1 tip-wrap">
+              <AnimatePresence mode="wait">
+                <motion.p
+                  key={tipIdx}
+                  className="text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                >
+                  {tips[tipIdx]}
+                </motion.p>
+              </AnimatePresence>
+            </div>
+            <div className="mt-2 text-xs flex flex-wrap gap-4 opacity-80 text-gray-600 dark:text-gray-400">
               <Link to="/about" className="hover:underline">Learn more</Link>
-              <a href="https://youtu.be/08GQGQ8U-vI" target="_blank" rel="noreferrer" className="hover:underline">
-                Quick video guide
-              </a>
+              <a href="https://youtu.be/08GQGQ8U-vI" target="_blank" rel="noreferrer" className="hover:underline">Quick video guide</a>
             </div>
           </div>
-        </section>
+        </motion.section>
       </div>
-    </div>
+
+      {/* Styles unchanged except for dark-friendly colors */}
+      <style>{`
+        .live-badge {
+          display:inline-flex; align-items:center; justify-content:center;
+          border-radius:9999px;
+          border:1px solid rgba(15,23,42,0.06);
+          background:#ecfdf5;
+          color:#065f46;
+        }
+        .dark .live-badge {
+          background: linear-gradient(90deg, rgba(16,185,129,0.10), rgba(6,182,212,0.05));
+          color:#d1fae5; border-color:rgba(255,255,255,0.04);
+        }
+        .card-shimmer {
+          position:absolute; left:0; right:0; top:0; height:6px;
+          border-top-left-radius:12px; border-top-right-radius:12px;
+          background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,0.06) 40%,rgba(255,255,255,0.12) 50%,rgba(255,255,255,0.06) 60%,rgba(255,255,255,0) 100%);
+          background-size:200% 100%; animation: shimmerMove 2200ms linear infinite;
+        }
+        @keyframes shimmerMove {
+          0% { background-position:-100% 0; }
+          100% { background-position:200% 0; }
+        }
+      `}</style>
+    </motion.div>
   )
 }
 
@@ -346,8 +405,21 @@ function SummaryRow({
   sparkColor: string
   series: number[]
 }) {
+  const cardVariantLocal = {
+    hidden: { opacity: 0, y: 10 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.45 } },
+    hover: { scale: 1.01 }
+  }
   return (
-    <section className="card card-live relative overflow-hidden">
+    <motion.section className="card card-live relative overflow-hidden"
+      variants={cardVariantLocal}
+      initial="hidden"
+      animate="show"
+      whileHover="hover"
+    >
+      {/* floating animated gradient */}
+      <div aria-hidden className="absolute -left-6 -top-10 w-40 h-40 rounded-full opacity-10 blur-3xl animate-blob-slow pointer-events-none" style={{ background: 'linear-gradient(135deg,#34d399,#60a5fa)' }} />
+
       <div className="card-shimmer" />
       <div className="p-4 md:p-6">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -371,7 +443,7 @@ function SummaryRow({
         </div>
       </div>
       <div className={`absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t ${gradient} pointer-events-none`} />
-    </section>
+    </motion.section>
   )
 }
 
@@ -402,8 +474,19 @@ function NPKRow({
   const COLOR_P = "#06b6d4" // cyan
   const COLOR_K = "#f59e0b" // amber
 
+  const cardVariantLocal = {
+    hidden: { opacity: 0, y: 8 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.45 } },
+    hover: { scale: 1.01 }
+  }
+
   return (
-    <section className="card card-live relative overflow-hidden">
+    <motion.section className="card card-live relative overflow-hidden"
+      variants={cardVariantLocal}
+      initial="hidden"
+      animate="show"
+      whileHover="hover"
+    >
       <div className="card-shimmer" />
       <div className="p-4 md:p-6">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -444,7 +527,7 @@ function NPKRow({
       </div>
 
       <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-green-400/30 via-cyan-400/20 to-amber-400/0 pointer-events-none" />
-    </section>
+    </motion.section>
   )
 }
 
@@ -455,7 +538,7 @@ function NPKChip({
   val:number; minV:number; maxV:number; th:{min:number;max:number}
 }) {
   return (
-    <div className="rounded-xl border border-[hsl(var(--border))] dark:border-white/10 p-3">
+    <motion.div whileHover={{ translateY: -4 }} className="rounded-xl border border-[hsl(var(--border))] dark:border-white/10 p-3">
       <div className="flex items-center gap-2">
         <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold"
               style={{background: color+"22", color}}>
@@ -472,7 +555,7 @@ function NPKChip({
         <KV label="Max" value={`${maxV.toFixed(0)}`} />
       </div>
       <div className="mt-2 text-[11px] opacity-70">Range: {th.min}–{th.max} ppm</div>
-    </div>
+    </motion.div>
   )
 }
 
@@ -504,11 +587,14 @@ function AutoSparkline({ data, color }:{ data:number[]; color:string }) {
   const d = `M ${PAD},${y(last[0])} ` + last.slice(1).map((v,i)=>`L ${PAD+(i+1)*step},${y(v)}`).join(" ")
   const area = `M ${PAD},${H-PAD} L ${PAD},${y(last[0])} ` + last.slice(1).map((v,i)=>`L ${PAD+(i+1)*step},${y(v)}`).join(" ") + ` L ${PAD+(last.length-1)*step},${H-PAD} Z`
 
+  // unique gradient id per color string (safe enough)
+  const gradId = `sg1-${color.replace('#','')}`
+
   return (
     <div ref={ref} className="w-full">
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="mini trend">
         <defs>
-          <linearGradient id="sg1" x1="0" x2="0" y1="0" y2="1">
+          <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.45" />
             <stop offset="100%" stopColor={color} stopOpacity="0.06" />
           </linearGradient>
@@ -517,9 +603,12 @@ function AutoSparkline({ data, color }:{ data:number[]; color:string }) {
           <line x1={PAD} y1={H-PAD} x2={W-PAD} y2={H-PAD} />
           <line x1={PAD} y1={H/2} x2={W-PAD} y2={H/2} />
         </g>
-        <path d={area} fill="url(#sg1)" />
+        <path d={area} fill={`url(#${gradId})`} />
         <path d={d} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
-        <circle cx={PAD+(last.length-1)*step} cy={y(last.at(-1) as number)} r="3.4" fill={color} />
+        <g>
+          <circle cx={PAD+(last.length-1)*step} cy={y(last.at(-1) as number)} r="3.4" fill={color} />
+          <circle cx={PAD+(last.length-1)*step} cy={y(last.at(-1) as number)} r="3.4" fill={color} className="animate-pulse-slow" style={{ opacity: 0.28 }} />
+        </g>
       </svg>
     </div>
   )

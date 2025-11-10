@@ -14,16 +14,21 @@ type Item = {
 
 const items: Item[] = [
   { key: "overview", label: "Dashboard", icon: "dashboard", to: "/" },
-  { key: "sensors",  label: "Sensors",   icon: "gauge",     to: "/sensors" },
-  { key: "settings", label: "Settings",  icon: "cog",       to: "/settings" },
-  { key: "about",    label: "About",     icon: "info",      to: "/about" },
+  { key: "sensors", label: "Sensors", icon: "gauge", to: "/sensors" },
+  { key: "settings", label: "Settings", icon: "cog", to: "/settings" },
+  { key: "about", label: "About", icon: "info", to: "/about" },
 ]
 
-/* Compact circular icon button for the mobile rail */
 function RailBtn({
-  to, label, icon, active,
-}:{
-  to:string; label:string; icon:Item["icon"]; active?:boolean
+  to,
+  label,
+  icon,
+  active,
+}: {
+  to: string
+  label: string
+  icon: Item["icon"]
+  active?: boolean
 }) {
   return (
     <Link
@@ -32,18 +37,20 @@ function RailBtn({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={[
-        "relative w-9 h-9 rounded-full grid place-items-center",
-        "bg-[hsl(var(--card))]/65 dark:bg-white/5 backdrop-blur",
-        "ring-1 ring-[hsl(var(--border))]/70 dark:ring-white/10",
-        "transition-colors duration-150 hover:bg-[hsl(var(--muted))]/70 dark:hover:bg-white/[0.08]",
-        active ? "ring-emerald-500/50" : ""
+        "relative w-11 h-11 rounded-2xl grid place-items-center",
+        "backdrop-blur-xl border border-white/10 transition-all duration-200 ease-out",
+        active
+          ? "bg-emerald-500/10 border-emerald-400/60 ring-2 ring-emerald-500/30 shadow-emerald-400/20 scale-105"
+          : "bg-white/10 dark:bg-white/[0.07] hover:bg-white/[0.18] hover:scale-105",
       ].join(" ")}
     >
       <Icon
         name={icon}
         className={[
-          "w-4 h-4",
-          active ? "text-emerald-400" : "text-gray-600 dark:text-gray-300"
+          "w-5 h-5 transition-transform duration-150",
+          active
+            ? "text-emerald-400 scale-110"
+            : "text-gray-400 dark:text-gray-300 group-hover:scale-110",
         ].join(" ")}
       />
     </Link>
@@ -53,31 +60,30 @@ function RailBtn({
 export default function SidebarNav() {
   const { pathname } = useLocation()
   const active: NavKey =
-    pathname.startsWith("/sensors")  ? "sensors"  :
-    pathname.startsWith("/settings") ? "settings" :
-    pathname.startsWith("/about")    ? "about"    :
-    "overview"
+    pathname.startsWith("/sensors")
+      ? "sensors"
+      : pathname.startsWith("/settings")
+      ? "settings"
+      : pathname.startsWith("/about")
+      ? "about"
+      : "overview"
 
   return (
     <>
-      {/* ---------------- Desktop sidebar (normal look) ---------------- */}
+      {/* -------- Desktop Sidebar -------- */}
       <aside
         className="
-          hidden md:flex flex-col w-64 shrink-0
-          px-4 py-6 bg-[hsl(var(--bg))]
+          hidden md:flex flex-col w-64 shrink-0 px-5 py-6
+          bg-[hsl(var(--bg))] border-r border-[hsl(var(--border))]/60 dark:border-white/10
         "
-        aria-label="Sidebar"
+        aria-label='Sidebar'
       >
-        <div className="mb-7 flex items-center pl-1">
-          {/* normal logo, not forced circular; slightly smaller for a tidy feel */}
-          <img
-            src={logo}
-            alt="TerraTrak"
-            className="w-8 h-8 object-contain"
-          />
+        <div className="mb-8 flex items-center gap-2 pl-1">
+          <img src={logo} alt='TerraTrak' className='w-8 h-8 object-contain' />
+          <h2 className='text-lg font-semibold tracking-tight'>TerraTrak</h2>
         </div>
 
-        <nav className="flex flex-col gap-2">
+        <nav className='flex flex-col gap-2'>
           {items.map((it) => {
             const selected = it.key === active
             return (
@@ -85,66 +91,70 @@ export default function SidebarNav() {
                 key={it.key}
                 to={it.to}
                 className={[
-                  "sidebar-item group focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40",
+                  "sidebar-item group flex items-center gap-3 rounded-lg px-3 py-2 transition-all",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40",
                   selected
-                    ? "bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-sm"
-                    : "hover:bg-[hsl(var(--muted))] dark:hover:bg-white/[0.06]"
+                    ? "bg-[hsl(var(--card))] border border-[hsl(var(--border))] shadow-sm text-emerald-400"
+                    : "hover:bg-[hsl(var(--muted))]/60 dark:hover:bg-white/[0.05]",
                 ].join(" ")}
                 aria-current={selected ? "page" : undefined}
               >
                 <Icon
                   name={it.icon}
                   className={[
-                    "w-4 h-4 shrink-0 transition-transform duration-150",
-                    selected ? "scale-[1.05]" : "group-hover:scale-105"
+                    "w-4 h-4 shrink-0",
+                    selected
+                      ? "text-emerald-400"
+                      : "text-gray-500 dark:text-gray-300",
                   ].join(" ")}
                 />
-                <span className={selected ? "font-semibold" : "font-medium"}>
+                <span
+                  className={[
+                    "text-sm transition-all duration-200",
+                    selected ? "font-semibold" : "font-medium",
+                  ].join(" ")}
+                >
                   {it.label}
                 </span>
               </Link>
             )
           })}
 
-        <div className="mt-2 mb-1 h-px bg-[hsl(var(--border))] dark:bg-white/10" />
-          <div className="pl-1 pt-1">
+          <div className='mt-3 mb-2 h-px bg-[hsl(var(--border))]/70 dark:bg-white/10' />
+          <div className='pl-1 pt-1'>
             <ThemeToggle />
           </div>
         </nav>
       </aside>
 
-      {/* ---------------- Mobile slim vertical rail (small & clean) ---------------- */}
+      {/* -------- Mobile Sidebar with Glassmorphism -------- */}
       <aside
         className="
-          md:hidden sticky top-0 h-[100dvh] w-12 shrink-0 z-40
-          bg-[hsl(var(--bg))]/92 backdrop-blur
-          border-r border-[hsl(var(--border))] dark:border-white/10
-          flex flex-col items-center justify-between py-2
+          md:hidden fixed bottom-4 left-1/2 -translate-x-1/2
+          flex items-center justify-around gap-3
+          w-[92%] max-w-sm rounded-3xl py-2.5 px-4
+          bg-white/20 dark:bg-zinc-900/30 backdrop-blur-xl
+          border border-white/30 dark:border-white/20
+          shadow-[0_8px_30px_rgba(0,0,0,0.2)]
+          transition-all duration-300 ease-out
+          hover:shadow-[0_10px_40px_rgba(0,0,0,0.25)]
+          z-50
         "
-        aria-label="Mobile sidebar"
+        aria-label='Mobile navigation bar'
       >
-        {/* Brand — small, normal logo (no circle crop) */}
-        <div className="flex flex-col items-center gap-2">
-          <img
-            src={logo}
-            alt="TerraTrak"
-            className="w-7 h-7 object-contain"
+        {/* Left and Right Nav Buttons */}
+        {items.map((it) => (
+          <RailBtn
+            key={it.key}
+            to={it.to}
+            label={it.label}
+            icon={it.icon}
+            active={it.key === active}
           />
+        ))}
 
-          {/* Vertical compact nav */}
-          <nav className="mt-1 flex flex-col items-center gap-1.5">
-            <RailBtn to="/"         label="Dashboard" icon="dashboard" active={active==="overview"} />
-            <RailBtn to="/sensors"  label="Sensors"   icon="gauge"     active={active==="sensors"} />
-            <RailBtn to="/settings" label="Settings"  icon="cog"       active={active==="settings"} />
-            <RailBtn to="/about"    label="About"     icon="info"      active={active==="about"} />
-          </nav>
-        </div>
-
-        {/* Single, compact theme toggle at bottom */}
-        <div className="pb-1">
-          <div className="scale-90 origin-bottom">
-            <ThemeToggle />
-          </div>
+        <div className='ml-1'>
+          <ThemeToggle />
         </div>
       </aside>
     </>

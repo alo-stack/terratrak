@@ -358,7 +358,9 @@ export default function Overview() {
             </div>
             <div className="mt-2 text-xs flex flex-wrap gap-4 opacity-80 text-gray-600 dark:text-gray-400">
               <Link to="/about" className="hover:underline">Learn more</Link>
-              <a href="https://youtu.be/08GQGQ8U-vI" target="_blank" rel="noreferrer" className="hover:underline">Quick video guide</a>
+              <a href="https://www.youtube.com/watch?v=EshdEtWWw3A" target="_blank" rel="noreferrer" 
+                className="relative text-red-500 after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-0 after:bg-red-500 after:transition-all after:duration-300 hover:after:w-full"
+                >Quick video guide</a>
             </div>
           </div>
         </motion.section>

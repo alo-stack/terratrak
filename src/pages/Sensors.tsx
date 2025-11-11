@@ -442,7 +442,7 @@ function NpkKpiCard({
         background: colorFor(s) + "0F",
       }}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:grid sm:grid-cols-3 gap-3 sm:gap-6 justify-items-center sm:justify-items-start">
         <span
           className="inline-block w-2.5 h-2.5 rounded-full"
           style={{ backgroundColor: colorFor(s) }}

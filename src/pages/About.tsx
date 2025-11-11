@@ -23,27 +23,27 @@ export default function About() {
         <div className="space-y-4 text-sm text-gray-700 dark:text-gray-200 leading-6 max-w-prose">
           <p className="text-gray-900 dark:text-gray-100 font-medium">
             TerraTrak unifies composting and soil health in one smart, data-driven system so users
-            can produce consistent, high-quality compost—without guesswork.
+            can produce consistent, high-quality compost, without guesswork.
           </p>
           <p>
             Many farmers and gardeners struggle with uncertainty: too much moisture or
             unstable soil quality leads to poor results, pushing reliance on chemical fertilizers.
             Existing tools are often costly, fragmented, or focus on either soil monitoring or
-            composting—but not both.
+            composting, but not both.
           </p>
           <p>
             TerraTrak uses sensors to track <em>temperature</em>, <em>humidity</em>, and
-            <em> nutrients</em>, surfacing real-time insights via a simple dashboard. The result:
-            consistent compost, healthier soils, and a sustainable alternative to chemical fertilizers
+            <em> nutrients</em>, surfacing real-time insights via an online dashboard. The result:
+            consistent compost, healthier soils, and a modern and sustainable alternative to chemical fertilizers
             —in a solution that’s affordable and accessible for everyday users.
           </p>
         </div>
 
         {/* Quick stats (hover lift + soft ring) */}
         <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Stat label="Sensors" value="4+" hint="Temp · Moist · NPK" />
-          <Stat label="Cycle time" value="~6–8 wks" hint="steady conditions" />
-          <Stat label="Pilot sites" value="3" hint="community gardens" />
+          <Stat label="Sensors" value="10+" hint="Temp · Moist · NPK" />
+          <Stat label="Cycle time" value="~4–8 wks" hint="steady conditions" />
+          <Stat label="Pilot sites" value="1" hint="farm" />
           <Stat label="Fertilizer spend" value="↓ 25–40%" hint="target reduction" />
         </div>
 
@@ -59,7 +59,6 @@ export default function About() {
         <div className="mt-4 flex flex-wrap gap-2">
           <Tag float>Temperature</Tag>
           <Tag>Humidity</Tag>
-          <Tag float>pH</Tag>
           <Tag>Nutrients</Tag>
           <Tag>Dashboard</Tag>
           <Tag float>Alerts</Tag>
@@ -93,6 +92,7 @@ export default function About() {
 
         <div className="mt-5 grid sm:grid-cols-2 gap-4">
           <Info label="Organization" value="Polytechnic University of the Philippines" />
+          <Info label="Sub-Organization" value="College of Engineering: Computer Engineering" />
           <Info label="Farm" value="—" />
         </div>
 

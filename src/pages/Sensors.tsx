@@ -259,8 +259,12 @@ export default function Sensors() {
       {/* Header */}
       <motion.section
         {...cardMotion}
-        className="relative rounded-2xl p-5 md:p-6 border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md"
+        className="relative rounded-2xl p-5 md:p-6 border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md overflow-hidden"
       >
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+        <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+        <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-center sm:text-left">
           <div className="flex items-center gap-2 justify-center sm:justify-start">
             <h2 className="text-lg font-semibold">Sensors</h2>
@@ -333,8 +337,12 @@ export default function Sensors() {
       {/* Insights */}
       <motion.section
         {...cardMotion}
-        className="relative mt-5 p-5 md:p-6 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md"
+        className="relative mt-5 p-5 md:p-6 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md overflow-hidden"
       >
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+        <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+        <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
         <h3 className="text-base font-semibold mb-3 text-center sm:text-left">Actionable Tips</h3>
         <ul className="space-y-2 text-sm leading-relaxed text-center sm:text-left">
           <AnimatePresence>
@@ -378,13 +386,16 @@ function KpiCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
       whileHover={{ scale: 1.03, y: -4 }}
-      className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 text-center sm:text-left"
+      className="relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 text-center sm:text-left overflow-hidden"
     >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+      <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+      <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-2">
         <h4 className="text-base font-semibold">{title}</h4>
         <span
-          className="px-2 py-0.5 rounded-full text-xs font-semibold border```tsx
-          "
+          className="px-2 py-0.5 rounded-full text-xs font-semibold border"
           style={{
             color,
             borderColor: color + "55",
@@ -447,8 +458,12 @@ function NpkKpiCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
       whileHover={{ scale: 1.03, y: -4 }}
-      className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 text-center sm:text-left"
+      className="relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 text-center sm:text-left overflow-hidden"
     >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+      <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+      <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
       <h4 className="text-base font-semibold mb-3">NPK</h4>
       <div className="flex flex-col sm:grid sm:grid-cols-3 gap-3 justify-items-center sm:justify-items-start">
         {item("N", n, status.n)}
@@ -479,8 +494,12 @@ function ChartCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
       whileHover={{ scale: 1.02, y: -4 }}
-      className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 text-center sm:text-left"
+      className="relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 text-center sm:text-left overflow-hidden"
     >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+      <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+      <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between text-center sm:text-left">
         <h4 className="text-base font-semibold">{title}</h4>
         <div className="text-lg font-semibold tabular-nums mt-1 sm:mt-0">

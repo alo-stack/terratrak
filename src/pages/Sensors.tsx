@@ -23,6 +23,8 @@ type Sample = {
   n: number
   p: number
   k: number
+  tempArray?: number[]
+  moistureArray?: number[]
 }
 type Status = "ok" | "low" | "high"
 type RangeKey = "live" | "1h" | "24h" | "7d"
@@ -127,6 +129,23 @@ function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID) {
         const rows: Sample[] = snap.docs
           .map((d) => {
             const x = d.data() as any
+            
+            // Parse temperature array (if available)
+            let tempArray: number[] | undefined
+            if (x.tempArray && Array.isArray(x.tempArray)) {
+              tempArray = x.tempArray
+                .map((v: any) => Number(v))
+                .filter((v: number) => Number.isFinite(v) && v > -127)
+            }
+            
+            // Parse moisture array (if available)
+            let moistureArray: number[] | undefined
+            if (x.moistureArray && Array.isArray(x.moistureArray)) {
+              moistureArray = x.moistureArray
+                .map((v: any) => Number(v))
+                .filter((v: number) => Number.isFinite(v) && v >= 0 && v <= 100)
+            }
+            
             return {
               ts: x.updatedAt?.toMillis?.() ?? Date.now(),
               temp: Number(x.tempC ?? x.temperature),
@@ -134,6 +153,8 @@ function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID) {
               n: Number(x.npk?.n),
               p: Number(x.npk?.p),
               k: Number(x.npk?.k),
+              tempArray,
+              moistureArray,
             }
           })
           .filter((r) => [r.temp, r.moist, r.n, r.p, r.k].every(Number.isFinite))
@@ -189,34 +210,73 @@ export default function Sensors() {
   )
 
   const kpi = React.useMemo(
-    () => ({
-      temp: {
-        avg: avg(series.temp),
-        min: Math.min(...series.temp, Infinity) || 0,
-        max: Math.max(...series.temp, -Infinity) || 0,
-      },
-      moist: {
-        avg: avg(series.moist),
-        min: Math.min(...series.moist, Infinity) || 0,
-        max: Math.max(...series.moist, -Infinity) || 0,
-      },
-      n: {
-        avg: Math.round(avg(series.n)),
-        min: Math.min(...series.n, Infinity) || 0,
-        max: Math.max(...series.n, -Infinity) || 0,
-      },
-      p: {
-        avg: Math.round(avg(series.p)),
-        min: Math.min(...series.p, Infinity) || 0,
-        max: Math.max(...series.p, -Infinity) || 0,
-      },
-      k: {
-        avg: Math.round(avg(series.k)),
-        min: Math.min(...series.k, Infinity) || 0,
-        max: Math.max(...series.k, -Infinity) || 0,
-      },
-    }),
-    [series]
+    () => {
+      // For Live range, use sensor arrays from latest reading for min/max
+      // For historical ranges, use time-based min/max
+      const isLive = range === "live"
+      const latestSample = windowed[windowed.length - 1]
+      
+      let tempMin = 0, tempMax = 0, moistMin = 0, moistMax = 0
+      let tempAvg = 0, moistAvg = 0
+      
+      if (isLive && latestSample) {
+        // Use latest tempC and moisturePct values directly (already averaged by ESP32)
+        tempAvg = latestSample.temp
+        moistAvg = latestSample.moist
+        
+        // Use sensor arrays for min/max if available
+        if (latestSample.tempArray && latestSample.tempArray.length > 0) {
+          tempMin = Math.min(...latestSample.tempArray)
+          tempMax = Math.max(...latestSample.tempArray)
+        } else {
+          tempMin = tempMax = latestSample.temp
+        }
+        
+        if (latestSample.moistureArray && latestSample.moistureArray.length > 0) {
+          moistMin = Math.min(...latestSample.moistureArray)
+          moistMax = Math.max(...latestSample.moistureArray)
+        } else {
+          moistMin = moistMax = latestSample.moist
+        }
+      } else {
+        // Use time-based average and min/max for historical ranges
+        tempAvg = avg(series.temp)
+        moistAvg = avg(series.moist)
+        tempMin = Math.min(...series.temp, Infinity) || 0
+        tempMax = Math.max(...series.temp, -Infinity) || 0
+        moistMin = Math.min(...series.moist, Infinity) || 0
+        moistMax = Math.max(...series.moist, -Infinity) || 0
+      }
+      
+      return {
+        temp: {
+          avg: tempAvg,
+          min: tempMin,
+          max: tempMax,
+        },
+        moist: {
+          avg: moistAvg,
+          min: moistMin,
+          max: moistMax,
+        },
+        n: {
+          avg: Math.round(avg(series.n)),
+          min: Math.min(...series.n, Infinity) || 0,
+          max: Math.max(...series.n, -Infinity) || 0,
+        },
+        p: {
+          avg: Math.round(avg(series.p)),
+          min: Math.min(...series.p, Infinity) || 0,
+          max: Math.max(...series.p, -Infinity) || 0,
+        },
+        k: {
+          avg: Math.round(avg(series.k)),
+          min: Math.min(...series.k, Infinity) || 0,
+          max: Math.max(...series.k, -Infinity) || 0,
+        },
+      }
+    },
+    [series, windowed, range]
   )
 
   const sTemp = statusFor(kpi.temp.avg, RANGES.temp.min, RANGES.temp.max)
@@ -314,8 +374,8 @@ export default function Sensors() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
-        <KpiCard title="Temperature" unit="°C" color={colorFor(sTemp)} status={sTemp} values={kpi.temp} />
-        <KpiCard title="Moisture" unit="%" color={colorFor(sMoist)} status={sMoist} values={kpi.moist} />
+        <KpiCard title="Temperature" unit="°C" color={colorFor(sTemp)} status={sTemp} values={kpi.temp} range={range} />
+        <KpiCard title="Moisture" unit="%" color={colorFor(sMoist)} status={sMoist} values={kpi.moist} range={range} />
         <NpkKpiCard n={kpi.n.avg} p={kpi.p.avg} k={kpi.k.avg} status={{ n: sN, p: sP, k: sK }} />
       </div>
 
@@ -373,29 +433,33 @@ function KpiCard({
   color,
   status,
   values,
+  range,
 }: {
   title: string
   unit: string
   color: string
   status: Status
   values: { avg: number; min: number; max: number }
+  range: RangeKey
 }) {
+  const isLive = range === "live"
+  
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
       whileHover={{ scale: 1.03, y: -4 }}
-      className="relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 text-center sm:text-left overflow-hidden"
+      className="relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 overflow-hidden"
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
       <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
       <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-2">
+      <div className="flex items-center justify-between mb-4">
         <h4 className="text-base font-semibold">{title}</h4>
         <span
-          className="px-2 py-0.5 rounded-full text-xs font-semibold border"
+          className="px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap"
           style={{
             color,
             borderColor: color + "55",
@@ -405,20 +469,68 @@ function KpiCard({
           {status.toUpperCase()}
         </span>
       </div>
-      <div className="grid grid-cols-3 gap-3 text-sm justify-items-center sm:justify-items-start">
-        <div>
-          <div className="text-xs opacity-70">Avg</div>
-          <div className="font-semibold">{values.avg.toFixed(1)}{unit}</div>
+
+      {isLive ? (
+        /* Live mode: Show current average prominently, with sensor range below */
+        <div className="space-y-3">
+          <div className="text-center py-2">
+            <div className="text-xs opacity-70 mb-1">Current Average</div>
+            <div className="text-3xl font-bold tabular-nums" style={{ color }}>
+              {values.avg.toFixed(1)}
+              <span className="text-lg ml-1 opacity-80">{unit}</span>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div className="text-center">
+              <div className="text-xs opacity-60 mb-1">Sensor Min</div>
+              <div className="text-sm font-semibold tabular-nums">
+                {values.min.toFixed(1)}{unit}
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs opacity-60 mb-1">Sensor Max</div>
+              <div className="text-sm font-semibold tabular-nums">
+                {values.max.toFixed(1)}{unit}
+              </div>
+            </div>
+          </div>
+          
+          <div className="text-xs opacity-50 text-center mt-2">
+            Range across all active sensors
+          </div>
         </div>
-        <div>
-          <div className="text-xs opacity-70">Min</div>
-          <div className="font-semibold">{values.min.toFixed(1)}{unit}</div>
+      ) : (
+        /* Historical mode: Show avg, min, max for the time period */
+        <div className="space-y-3">
+          <div className="text-center py-2">
+            <div className="text-xs opacity-70 mb-1">Period Average</div>
+            <div className="text-3xl font-bold tabular-nums" style={{ color }}>
+              {values.avg.toFixed(1)}
+              <span className="text-lg ml-1 opacity-80">{unit}</span>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div className="text-center">
+              <div className="text-xs opacity-60 mb-1">Period Min</div>
+              <div className="text-sm font-semibold tabular-nums">
+                {values.min.toFixed(1)}{unit}
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs opacity-60 mb-1">Period Max</div>
+              <div className="text-sm font-semibold tabular-nums">
+                {values.max.toFixed(1)}{unit}
+              </div>
+            </div>
+          </div>
+          
+          <div className="text-xs opacity-50 text-center mt-2">
+            {range === "1h" ? "Last hour" : range === "24h" ? "Last 24 hours" : "Last 7 days"}
+          </div>
         </div>
-        <div>
-          <div className="text-xs opacity-70">Max</div>
-          <div className="font-semibold">{values.max.toFixed(1)}{unit}</div>
-        </div>
-      </div>
+      )}
     </motion.div>
   )
 }

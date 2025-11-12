@@ -1,4 +1,15 @@
 import React from "react"
+// Firestore integration for alert email persistence + history logging
+import {
+  doc,
+  getDoc,
+  setDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+  arrayUnion,
+} from "firebase/firestore"
+import { db } from "../lib/firebase"
 
 type ThresholdField = { min: number | ""; max: number | "" }
 type Thresholds = {
@@ -61,6 +72,7 @@ export default function Settings() {
   const [saving, setSaving] = React.useState<"thresholds" | "email" | null>(null)
   const [banner, setBanner] = React.useState<{ kind: "ok" | "err"; msg: string } | null>(null)
   const [savedPulse, setSavedPulse] = React.useState<"t" | "e" | null>(null)
+  const [loadingEmail, setLoadingEmail] = React.useState<boolean>(true)
 
   const setField = (group: keyof Thresholds, bound: "min" | "max", value: string) => {
     if (value === "" || /^-?\d+(\.\d+)?$/.test(value)) {
@@ -120,14 +132,61 @@ export default function Settings() {
       return
     }
     setSaving("email")
-    localStorage.setItem(ALERT_EMAIL_KEY, email)
-    setTimeout(() => {
-      setSaving(null)
-      setSavedPulse("e")
-      setBanner({ kind: "ok", msg: "Alert email saved. We’ll use this for notifications." })
-      setTimeout(() => setSavedPulse(null), 900)
-    }, 260)
+    // Save the email value before clearing
+    const emailToSave = email
+    // References: email_address doc + logs doc (both in email_addresses collection)
+    const emailDocRef = doc(db, "email_addresses", "email_address")
+    const logsDocRef = doc(db, "email_addresses", "logs")
+
+    // Write current email to email_address doc + append to logs doc as array
+    Promise.all([
+      setDoc(emailDocRef, { email: emailToSave, updated_at: serverTimestamp() }, { merge: true }),
+      setDoc(logsDocRef, { 
+        entries: arrayUnion({ email: emailToSave, savedAt: new Date().toISOString() })
+      }, { merge: true }),
+    ])
+      .then(async () => {
+        // Clear the email field and localStorage
+        setEmail("")
+        localStorage.removeItem(ALERT_EMAIL_KEY)
+        setSaving(null)
+        setSavedPulse("e")
+        setBanner({ kind: "ok", msg: "Alert email saved & logged (cloud + local)." })
+        setTimeout(() => setSavedPulse(null), 900)
+      })
+      .catch((err) => {
+        console.error("Failed to save email to Firestore", err)
+        setSaving(null)
+        setSavedPulse("e")
+        setBanner({ kind: "err", msg: "Saved locally but cloud log failed." })
+        setTimeout(() => setSavedPulse(null), 900)
+      })
   }
+
+  // Load existing email from Firestore on mount (override local if cloud has value)
+  React.useEffect(() => {
+    let active = true
+    const run = async () => {
+      try {
+        const ref = doc(db, "email_addresses", "email_address")
+        const snap = await getDoc(ref)
+        if (active && snap.exists()) {
+          const cloudEmail = snap.get("email")
+          if (typeof cloudEmail === "string" && cloudEmail.trim()) {
+            // Don't auto-populate the field, just store in Firestore
+            // setEmail(cloudEmail)
+            // localStorage.setItem(ALERT_EMAIL_KEY, cloudEmail)
+          }
+        }
+      } catch (e) {
+        console.warn("Could not load email from Firestore", e)
+      } finally {
+        if (active) setLoadingEmail(false)
+      }
+    }
+    run()
+    return () => { active = false }
+  }, [])
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 animate-fade-in-up px-3 sm:px-0">
@@ -278,13 +337,14 @@ export default function Settings() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               className="input flex-1"
+              disabled={loadingEmail}
             />
             <button
               onClick={saveEmail}
               className="rounded-xl px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-60"
-              disabled={saving === "email" || !emailDirty}
+              disabled={loadingEmail || saving === "email" || !emailDirty}
             >
-              {saving === "email" ? "Saving…" : "Save"}
+              {loadingEmail ? "Loading…" : saving === "email" ? "Saving…" : "Save"}
             </button>
           </div>
           <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">

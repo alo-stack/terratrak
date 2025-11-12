@@ -57,6 +57,8 @@ function useLiveSeries() {
   const [k, setK]         = React.useState<number[]>([])
   const [mode, setMode]   = React.useState<"firebase"|"sim">("sim")
   const [lastUpdate, setLastUpdate] = React.useState<number|null>(null)
+  const [latestTempArray, setLatestTempArray] = React.useState<number[]>([])
+  const [latestMoistureArray, setLatestMoistureArray] = React.useState<number[]>([])
 
   // seed with simulated history so cards aren’t empty
   React.useEffect(() => {
@@ -118,6 +120,22 @@ function useLiveSeries() {
         const valid = [tVal,mVal,nVal,pVal,kVal].every(v => Number.isFinite(v))
         if (!valid) return
 
+        // Parse temperature array (if available)
+        if (d.tempArray && Array.isArray(d.tempArray)) {
+          const tempArr = d.tempArray
+            .map((v: any) => Number(v))
+            .filter((v: number) => Number.isFinite(v) && v > -127)
+          if (tempArr.length > 0) setLatestTempArray(tempArr)
+        }
+        
+        // Parse moisture array (if available)
+        if (d.moistureArray && Array.isArray(d.moistureArray)) {
+          const moistArr = d.moistureArray
+            .map((v: any) => Number(v))
+            .filter((v: number) => Number.isFinite(v) && v >= 0 && v <= 100)
+          if (moistArr.length > 0) setLatestMoistureArray(moistArr)
+        }
+
         if (!receivedLive) {
           receivedLive = true
           setMode("firebase")
@@ -144,7 +162,7 @@ function useLiveSeries() {
     }
   }, [])
 
-  return { temp, moist, n, p, k, mode, lastUpdate }
+  return { temp, moist, n, p, k, mode, lastUpdate, latestTempArray, latestMoistureArray }
 }
 
 /* ------------------------------ Component ------------------------------ */
@@ -173,15 +191,21 @@ export default function Overview() {
     }
   }, [])
 
-  const { temp, moist, n, p, k, mode, lastUpdate } = useLiveSeries()
+  const { temp, moist, n, p, k, mode, lastUpdate, latestTempArray, latestMoistureArray } = useLiveSeries()
+
+  // For live data, use sensor arrays for min/max (matching Sensors.tsx Live mode logic)
+  const tempMin = latestTempArray.length > 0 ? Math.min(...latestTempArray) : (temp.length > 0 ? temp[temp.length - 1] : 0)
+  const tempMax = latestTempArray.length > 0 ? Math.max(...latestTempArray) : (temp.length > 0 ? temp[temp.length - 1] : 0)
+  const moistMin = latestMoistureArray.length > 0 ? Math.min(...latestMoistureArray) : (moist.length > 0 ? moist[moist.length - 1] : 0)
+  const moistMax = latestMoistureArray.length > 0 ? Math.max(...latestMoistureArray) : (moist.length > 0 ? moist[moist.length - 1] : 0)
 
   const summary = {
-    temp:  { avg: avg(temp),  min: min(temp),  max: max(temp)  },
-    moist: { avg: avg(moist), min: min(moist), max: max(moist) },
+    temp:  { avg: temp.length > 0 ? temp[temp.length - 1] : 0, min: tempMin, max: tempMax },
+    moist: { avg: moist.length > 0 ? moist[moist.length - 1] : 0, min: moistMin, max: moistMax },
     npk: {
-      n: { avg: avg(n), min: min(n), max: max(n) },
-      p: { avg: avg(p), min: min(p), max: max(p) },
-      k: { avg: avg(k), min: min(k), max: max(k) },
+      n: { avg: n.length > 0 ? n[n.length - 1] : 0 },
+      p: { avg: p.length > 0 ? p[p.length - 1] : 0 },
+      k: { avg: k.length > 0 ? k[k.length - 1] : 0 },
     },
   }
 
@@ -220,13 +244,13 @@ export default function Overview() {
 
   return (
     <motion.div
-      className="space-y-4 overview-root text-gray-800 dark:text-gray-100"
+      className="space-y-3 md:space-y-4 overview-root text-gray-800 dark:text-gray-100 px-2 sm:px-0"
       variants={containerVariants}
       initial="hidden"
       animate="show"
     >
       {/* Header / Health */}
-      <motion.section className="card card-live relative p-4 md:p-6 overflow-hidden text-gray-800 dark:text-gray-100"
+      <motion.section className="card card-live relative p-3 sm:p-4 md:p-6 overflow-hidden text-gray-800 dark:text-gray-100"
         variants={cardVariant} whileHover="hover"
         style={{ willChange: 'transform,opacity' }}
       >
@@ -245,31 +269,31 @@ export default function Overview() {
 
         <div className="card-shimmer" />
 
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-sm sm:text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">
                 Overview (24 Hours)
               </h1>
-              <motion.span className="live-badge px-2 py-0.5 rounded-full text-[10px] font-semibold border opacity-95">
+              <motion.span className="live-badge px-2 py-0.5 rounded-full text-[10px] font-semibold border opacity-95 whitespace-nowrap">
                 {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
               </motion.span>
             </div>
             {mode === "sim" ? (
-              <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+              <p className="mt-1 text-xs sm:text-sm text-amber-700 dark:text-amber-300">
                 ESP32 not transmitting data, in simulation mode
               </p>
             ) : lastUpdate && (
-              <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
+              <p className="mt-1 text-xs sm:text-sm text-emerald-700 dark:text-emerald-300">
                 ESP32 transmitted data last {new Date(lastUpdate).toLocaleString()}
               </p>
             )}
           </div>
 
           <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-            <span className="text-sm opacity-80">Overall health</span>
+            <span className="text-xs sm:text-sm opacity-80 whitespace-nowrap">Overall health</span>
             <motion.span
-              className="px-2.5 py-1 rounded-full text-xs font-semibold health-pill"
+              className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold health-pill whitespace-nowrap"
               animate={{ backgroundColor: statusColor[healthRank] + '22', color: statusColor[healthRank] }}
               style={{ border: `1px solid ${statusColor[healthRank]}44` }}
             >
@@ -280,8 +304,8 @@ export default function Overview() {
       </motion.section>
 
       {/* Summaries + Alerts */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 text-gray-800 dark:text-gray-100">
-        <section className="lg:col-span-8 space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-4 text-gray-800 dark:text-gray-100">
+        <section className="lg:col-span-8 space-y-3 md:space-y-4">
           <SummaryRow
             title="Temperature"
             unit="°C"
@@ -310,16 +334,16 @@ export default function Overview() {
         </section>
 
         {/* Alerts & Tips */}
-        <motion.section className="lg:col-span-4 card card-live relative p-4 md:p-6 overflow-hidden text-gray-800 dark:text-gray-100"
+        <motion.section className="lg:col-span-4 card card-live relative p-3 sm:p-4 md:p-6 overflow-hidden text-gray-800 dark:text-gray-100"
           variants={cardVariant} whileHover="hover"
         >
           <div className="card-shimmer" />
-          <h3 className="text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-xs sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">
             Active alerts
           </h3>
-          <div className="mt-3 space-y-2">
+          <div className="mt-2 sm:mt-3 space-y-2">
             {alerts.length === 0 && (
-              <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 opacity-80">
+              <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">
                 No active alerts. All parameters are within range.
               </div>
             )}
@@ -327,27 +351,27 @@ export default function Overview() {
               {alerts.map(a => (
                 <motion.div
                   key={a.id}
-                  className="rounded-lg border px-3 py-2 text-sm flex items-center gap-2 alert-row"
+                  className="rounded-lg border px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm flex items-center gap-2 alert-row"
                   style={{ borderColor: statusColor[a.level]+"55", background: statusColor[a.level]+"10", color: statusColor[a.level] }}
                   variants={alertVariant}
                   initial="hidden"
                   animate="show"
                   exit="exit"
                 >
-                  <span className={"w-2 h-2 rounded-full "+statusDotClass[a.level]} />
+                  <span className={"w-2 h-2 rounded-full flex-shrink-0 "+statusDotClass[a.level]} />
                   <span className="font-medium">{a.msg}</span>
                 </motion.div>
               ))}
             </AnimatePresence>
           </div>
 
-          <div className="mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-4">
-            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Vermicomposting tip</h4>
+          <div className="mt-4 sm:mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-3 sm:pt-4">
+            <h4 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-gray-100">Vermicomposting tip</h4>
             <div className="mt-1 tip-wrap">
               <AnimatePresence mode="wait">
                 <motion.p
                   key={tipIdx}
-                  className="text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text"
+                  className="text-xs sm:text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text"
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
@@ -356,7 +380,7 @@ export default function Overview() {
                 </motion.p>
               </AnimatePresence>
             </div>
-            <div className="mt-2 text-xs flex flex-wrap gap-4 opacity-80 text-gray-600 dark:text-gray-400">
+            <div className="mt-2 text-[10px] sm:text-xs flex flex-wrap gap-3 sm:gap-4 opacity-80 text-gray-600 dark:text-gray-400">
               <Link to="/about" className="hover:underline">Learn more</Link>
               <a href="https://www.youtube.com/watch?v=EshdEtWWw3A" target="_blank" rel="noreferrer" 
                 className="relative text-red-500 after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-0 after:bg-red-500 after:transition-all after:duration-300 hover:after:w-full"
@@ -423,37 +447,37 @@ function SummaryRow({
       <div aria-hidden className="absolute -left-6 -top-10 w-40 h-40 rounded-full opacity-10 blur-3xl animate-blob-slow pointer-events-none" style={{ background: 'linear-gradient(135deg,#34d399,#60a5fa)' }} />
 
       <div className="card-shimmer" />
-      <div className="p-4 md:p-6">
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+      <div className="p-3 sm:p-4 md:p-6">
+        <div className="flex flex-col gap-3 sm:gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm md:text-base font-semibold">{title}</h3>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold border"
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-xs sm:text-sm md:text-base font-semibold">{title}</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold border whitespace-nowrap"
                     style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
                 {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
               </span>
             </div>
-            <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
+            <div className="mt-2 grid grid-cols-3 gap-2 sm:gap-3 text-xs sm:text-sm">
               <KV label="Avg" value={`${data.avg.toFixed(1)}${unit}`} />
               <KV label="Min" value={`${data.min.toFixed(1)}${unit}`} />
               <KV label="Max" value={`${data.max.toFixed(1)}${unit}`} />
             </div>
           </div>
-          <div className="w-full md:max-w-[440px]">
+          <div className="w-full">
             <AutoSparkline color={sparkColor} data={series} />
           </div>
         </div>
       </div>
-      <div className={`absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t ${gradient} pointer-events-none`} />
+      <div className={`absolute inset-x-0 bottom-0 h-12 sm:h-16 bg-gradient-to-t ${gradient} pointer-events-none`} />
     </motion.section>
   )
 }
 
 function KV({ label, value }: { label:string; value:string }) {
   return (
-    <div>
-      <div className="text-xs opacity-70">{label}</div>
-      <div className="font-semibold tabular-nums">{value}</div>
+    <div className="min-w-0">
+      <div className="text-[10px] sm:text-xs opacity-70 truncate">{label}</div>
+      <div className="font-semibold tabular-nums text-xs sm:text-sm truncate">{value}</div>
     </div>
   )
 }
@@ -466,7 +490,7 @@ function NPKRow({
   thresholds,
   series
 }:{
-  data: { n:{avg:number;min:number;max:number}; p:{avg:number;min:number;max:number}; k:{avg:number;min:number;max:number} }
+  data: { n:{avg:number}; p:{avg:number}; k:{avg:number} }
   status: StatusKey
   statuses: { n:StatusKey; p:StatusKey; k:StatusKey }
   thresholds: { n:{min:number;max:number}; p:{min:number;max:number}; k:{min:number;max:number} }
@@ -490,33 +514,33 @@ function NPKRow({
       whileHover="hover"
     >
       <div className="card-shimmer" />
-      <div className="p-4 md:p-6">
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+      <div className="p-3 sm:p-4 md:p-6">
+        <div className="flex flex-col gap-3 sm:gap-4">
           <div className="w-full">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm md:text-base font-semibold">NPK (ppm)</h3>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold border"
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-xs sm:text-sm md:text-base font-semibold">NPK (ppm)</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold border whitespace-nowrap"
                     style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
                 {status === "ok" ? "OK" : "Watch/Alert"}
               </span>
             </div>
 
             {/* chips */}
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+            <div className="mt-2 sm:mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 text-xs sm:text-sm">
               <NPKChip label="N" color={COLOR_N} status={statuses.n}
-                       val={data.n.avg} minV={data.n.min} maxV={data.n.max}
+                       val={data.n.avg}
                        th={thresholds.n} />
               <NPKChip label="P" color={COLOR_P} status={statuses.p}
-                       val={data.p.avg} minV={data.p.min} maxV={data.p.max}
+                       val={data.p.avg}
                        th={thresholds.p} />
               <NPKChip label="K" color={COLOR_K} status={statuses.k}
-                       val={data.k.avg} minV={data.k.min} maxV={data.k.max}
+                       val={data.k.avg}
                        th={thresholds.k} />
             </div>
           </div>
 
           {/* multi sparkline */}
-          <div className="w-full md:max-w-[440px]">
+          <div className="w-full">
             <AutoSparklineMulti
               series={[
                 { data: series.n, color: COLOR_N },
@@ -528,35 +552,35 @@ function NPKRow({
         </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-green-400/30 via-cyan-400/20 to-amber-400/0 pointer-events-none" />
+      <div className="absolute inset-x-0 bottom-0 h-12 sm:h-16 bg-gradient-to-t from-green-400/30 via-cyan-400/20 to-amber-400/0 pointer-events-none" />
     </motion.section>
   )
 }
 
 function NPKChip({
-  label, color, status, val, minV, maxV, th
+  label, color, status, val, th
 }:{
   label:"N"|"P"|"K"; color:string; status: StatusKey;
-  val:number; minV:number; maxV:number; th:{min:number;max:number}
+  val:number; th:{min:number;max:number}
 }) {
   return (
-    <motion.div whileHover={{ translateY: -4 }} className="rounded-xl border border-[hsl(var(--border))] dark:border-white/10 p-3">
-      <div className="flex items-center gap-2">
-        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold"
+    <motion.div whileHover={{ translateY: -4 }} className="rounded-xl border border-[hsl(var(--border))] dark:border-white/10 p-2 sm:p-3">
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        <span className="inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 rounded-full text-[10px] sm:text-xs font-bold flex-shrink-0"
               style={{background: color+"22", color}}>
           {label}
         </span>
-        <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold border"
+        <span className="px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[11px] font-semibold border whitespace-nowrap"
               style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
           {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
         </span>
       </div>
-      <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
-        <KV label="Avg" value={`${val.toFixed(0)}`} />
-        <KV label="Min" value={`${minV.toFixed(0)}`} />
-        <KV label="Max" value={`${maxV.toFixed(0)}`} />
+      <div className="mt-1.5 sm:mt-2 text-center">
+        <div className="text-[10px] sm:text-xs opacity-70">Current</div>
+        <div className="text-xl sm:text-2xl font-bold tabular-nums" style={{ color }}>{val.toFixed(0)}</div>
+        <div className="text-[10px] sm:text-xs opacity-60">ppm</div>
       </div>
-      <div className="mt-2 text-[11px] opacity-70">Range: {th.min}–{th.max} ppm</div>
+      <div className="mt-1.5 sm:mt-2 text-[9px] sm:text-[11px] opacity-70 text-center">Range: {th.min}–{th.max} ppm</div>
     </motion.div>
   )
 }
@@ -565,11 +589,11 @@ function NPKChip({
 
 function AutoSparkline({ data, color }:{ data:number[]; color:string }) {
   const ref = React.useRef<HTMLDivElement|null>(null)
-  const [size, setSize] = React.useState({ w: 360, h: 72 })
+  const [size, setSize] = React.useState({ w: 360, h: 64 })
   React.useEffect(() => {
     const update = () => {
-      const w = Math.max(240, Math.min(520, ref.current?.clientWidth || 360))
-      const h = w < 320 ? 64 : 72
+      const w = Math.max(200, Math.min(520, ref.current?.clientWidth || 360))
+      const h = w < 280 ? 56 : w < 400 ? 64 : 72
       setSize({ w, h })
     }
     update()
@@ -578,9 +602,9 @@ function AutoSparkline({ data, color }:{ data:number[]; color:string }) {
     return () => ro.disconnect()
   }, [])
 
-  const PAD = 8
+  const PAD = 6
   const { w:W, h:H } = size
-  if (!data.length) return <div ref={ref} className="h-[72px]" />
+  if (!data.length) return <div ref={ref} className="h-14 sm:h-16 md:h-[72px]" />
 
   const last = data.slice(-48)
   const lo = min(last), hi = max(last)
@@ -593,8 +617,8 @@ function AutoSparkline({ data, color }:{ data:number[]; color:string }) {
   const gradId = `sg1-${color.replace('#','')}`
 
   return (
-    <div ref={ref} className="w-full">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="mini trend">
+    <div ref={ref} className="w-full min-w-0">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="mini trend" className="max-w-full">
         <defs>
           <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.45" />
@@ -606,10 +630,10 @@ function AutoSparkline({ data, color }:{ data:number[]; color:string }) {
           <line x1={PAD} y1={H/2} x2={W-PAD} y2={H/2} />
         </g>
         <path d={area} fill={`url(#${gradId})`} />
-        <path d={d} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
         <g>
-          <circle cx={PAD+(last.length-1)*step} cy={y(last.at(-1) as number)} r="3.4" fill={color} />
-          <circle cx={PAD+(last.length-1)*step} cy={y(last.at(-1) as number)} r="3.4" fill={color} className="animate-pulse-slow" style={{ opacity: 0.28 }} />
+          <circle cx={PAD+(last.length-1)*step} cy={y(last.at(-1) as number)} r="3" fill={color} />
+          <circle cx={PAD+(last.length-1)*step} cy={y(last.at(-1) as number)} r="3" fill={color} className="animate-pulse-slow" style={{ opacity: 0.28 }} />
         </g>
       </svg>
     </div>
@@ -618,11 +642,11 @@ function AutoSparkline({ data, color }:{ data:number[]; color:string }) {
 
 function AutoSparklineMulti({ series }:{ series:{data:number[]; color:string}[] }) {
   const ref = React.useRef<HTMLDivElement|null>(null)
-  const [size, setSize] = React.useState({ w: 360, h: 72 })
+  const [size, setSize] = React.useState({ w: 360, h: 64 })
   React.useEffect(() => {
     const update = () => {
-      const w = Math.max(240, Math.min(520, ref.current?.clientWidth || 360))
-      const h = w < 320 ? 64 : 72
+      const w = Math.max(200, Math.min(520, ref.current?.clientWidth || 360))
+      const h = w < 280 ? 56 : w < 400 ? 64 : 72
       setSize({ w, h })
     }
     update()
@@ -631,10 +655,10 @@ function AutoSparklineMulti({ series }:{ series:{data:number[]; color:string}[] 
     return () => ro.disconnect()
   }, [])
 
-  const PAD = 8
+  const PAD = 6
   const { w:W, h:H } = size
   const any = series.find(s=>s.data.length)
-  if (!any) return <div ref={ref} className="h-[72px]" />
+  if (!any) return <div ref={ref} className="h-14 sm:h-16 md:h-[72px]" />
 
   const sliced = series.map(s => s.data.slice(-48))
   const flat = sliced.flat()
@@ -643,8 +667,8 @@ function AutoSparklineMulti({ series }:{ series:{data:number[]; color:string}[] 
   const step = (W - PAD*2) / Math.max(1, (sliced[0]?.length || 1)-1)
 
   return (
-    <div ref={ref} className="w-full">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="NPK trends">
+    <div ref={ref} className="w-full min-w-0">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="NPK trends" className="max-w-full">
         <g opacity=".12" stroke="currentColor">
           <line x1={PAD} y1={H-PAD} x2={W-PAD} y2={H-PAD} />
           <line x1={PAD} y1={H/2} x2={W-PAD} y2={H/2} />
@@ -653,11 +677,11 @@ function AutoSparklineMulti({ series }:{ series:{data:number[]; color:string}[] 
           if (!arr.length) return null
           const d = `M ${PAD},${y(arr[0])} ` + arr.slice(1).map((v,i)=>`L ${PAD+(i+1)*step},${y(v)}`).join(" ")
           return (
-            <path key={idx} d={d} fill="none" stroke={series[idx].color} strokeWidth="2.0" strokeLinejoin="round" strokeLinecap="round" opacity="0.95" />
+            <path key={idx} d={d} fill="none" stroke={series[idx].color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" opacity="0.95" />
           )
         })}
         {sliced.map((arr, idx) =>
-          arr.length ? <circle key={"c"+idx} cx={PAD+(arr.length-1)*step} cy={y(arr.at(-1) as number)} r="3.0" fill={series[idx].color} /> : null
+          arr.length ? <circle key={"c"+idx} cx={PAD+(arr.length-1)*step} cy={y(arr.at(-1) as number)} r="2.8" fill={series[idx].color} /> : null
         )}
       </svg>
     </div>

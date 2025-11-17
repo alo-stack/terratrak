@@ -82,7 +82,7 @@ export default function About() {
           title="Who made TerraTrak possible?"
         />
 
-        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-2 mb-2">Researchers</h3>
+        <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 mt-2 mb-2">Researchers</h3>
         <ul className="space-y-2">
           <Person name="Corcino, Daniel Justine" />
           <Person name="De Mesa, Charisse Anne" />
@@ -113,7 +113,7 @@ function Header({ icon, title }: { icon: React.ReactNode; title: string }) {
   return (
     <div className="flex items-center gap-2 mb-3">
       {icon}
-      <h2 className="text-base md:text-lg font-semibold">{title}</h2>
+      <h2 className="text-lg md:text-lg font-semibold">{title}</h2>
     </div>
   )
 }
@@ -124,7 +124,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
                     transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-400/40 hover:shadow-sm">
       <div className="text-xs text-gray-600 dark:text-gray-300">{label}</div>
       <div className="text-sm font-semibold">{value}</div>
-      {hint && <div className="text-[11px] text-gray-500 dark:text-gray-400">{hint}</div>}
+      {hint && <div className="text-xs text-gray-500 dark:text-gray-400">{hint}</div>}
     </div>
   )
 }

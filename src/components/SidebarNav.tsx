@@ -37,22 +37,25 @@ function RailBtn({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={[
-        "relative w-11 h-11 rounded-2xl grid place-items-center",
-        "backdrop-blur-xl border border-white/10 transition-all duration-200 ease-out",
+        "relative w-11 h-11 rounded-2xl grid place-items-center shrink-0",
+        "backdrop-blur-xl border transition-all duration-200 ease-out",
         active
-          ? "bg-emerald-500/10 border-emerald-400/60 ring-2 ring-emerald-500/30 shadow-emerald-400/20 scale-105"
-          : "bg-white/10 dark:bg-white/[0.07] hover:bg-white/[0.18] hover:scale-105",
+          ? "bg-emerald-500/15 border-emerald-400/70 ring-2 ring-emerald-500/40 shadow-lg shadow-emerald-400/20"
+          : "bg-white/15 dark:bg-white/[0.08] border-white/20 dark:border-white/15 hover:bg-white/25 dark:hover:bg-white/[0.12] hover:scale-105 active:scale-95",
       ].join(" ")}
     >
       <Icon
         name={icon}
         className={[
-          "w-5 h-5 transition-transform duration-150",
+          "w-5 h-5 transition-all duration-200 stroke-[1.8]",
           active
-            ? "text-emerald-400 scale-110"
-            : "text-gray-400 dark:text-gray-300 group-hover:scale-110",
+            ? "text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]"
+            : "text-gray-600 dark:text-gray-300",
         ].join(" ")}
       />
+      {active && (
+        <div className="absolute inset-0 rounded-2xl bg-emerald-400/5 animate-pulse" />
+      )}
     </Link>
   )
 }
@@ -130,17 +133,19 @@ export default function SidebarNav() {
       {/* -------- Mobile Sidebar with Glassmorphism -------- */}
       <aside
         className="
-          md:hidden fixed bottom-4 left-1/2 -translate-x-1/2
-          flex items-center justify-around gap-3
-          w-[92%] max-w-sm rounded-3xl py-2.5 px-4
-          bg-white/20 dark:bg-zinc-900/30 backdrop-blur-xl
-          border border-white/30 dark:border-white/20
-          shadow-[0_8px_30px_rgba(0,0,0,0.2)]
+          md:hidden fixed bottom-3 left-1/2 -translate-x-1/2
+          flex items-center justify-center gap-3
+          w-auto rounded-3xl py-2.5 px-3
+          bg-white/25 dark:bg-zinc-900/35 backdrop-blur-xl
+          border border-white/40 dark:border-white/25
+          shadow-[0_8px_32px_rgba(0,0,0,0.25),0_2px_8px_rgba(0,0,0,0.1)]
           transition-all duration-300 ease-out
-          hover:shadow-[0_10px_40px_rgba(0,0,0,0.25)]
+          hover:shadow-[0_12px_48px_rgba(0,0,0,0.3)]
           z-50
+          safe-area-inset-bottom
         "
         aria-label='Mobile navigation bar'
+        style={{ WebkitBackdropFilter: 'blur(16px)' }}
       >
         {/* Left and Right Nav Buttons */}
         {items.map((it) => (
@@ -153,7 +158,9 @@ export default function SidebarNav() {
           />
         ))}
 
-        <div className='ml-1'>
+        <div className='w-px h-8 bg-white/20 dark:bg-white/15 mx-1' />
+        
+        <div className='shrink-0'>
           <ThemeToggle />
         </div>
       </aside>

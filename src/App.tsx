@@ -14,11 +14,11 @@ export default function App(){
         <SidebarNav />
 
         {/* Content column */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 relative">
           <Topbar />
 
           {/* Main content — full width, no right rail */}
-          <main className="px-2 sm:px-4 pb-4 sm:pb-6 min-w-0">
+          <main className="flex-1 px-2 sm:px-4 pt-24 sm:pt-3 md:pt-4 pb-20 md:pb-6 min-w-0 overflow-y-auto">
             <Routes>
               <Route path="/" element={<Overview />} />
               <Route path="/sensors" element={<Sensors />} />

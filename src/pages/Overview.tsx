@@ -272,28 +272,28 @@ export default function Overview() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-sm sm:text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">
+              <h1 className="text-lg sm:text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">
                 Overview (24 Hours)
               </h1>
-              <motion.span className="live-badge px-2 py-0.5 rounded-full text-[10px] font-semibold border opacity-95 whitespace-nowrap">
+              <motion.span className="live-badge px-2 py-0.5 rounded-full text-xs font-semibold border opacity-95 whitespace-nowrap">
                 {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
               </motion.span>
             </div>
             {mode === "sim" ? (
-              <p className="mt-1 text-xs sm:text-sm text-amber-700 dark:text-amber-300">
+              <p className="mt-1 text-sm sm:text-sm text-amber-700 dark:text-amber-300">
                 ESP32 not transmitting data, in simulation mode
               </p>
             ) : lastUpdate && (
-              <p className="mt-1 text-xs sm:text-sm text-emerald-700 dark:text-emerald-300">
+              <p className="mt-1 text-sm sm:text-sm text-emerald-700 dark:text-emerald-300">
                 ESP32 transmitted data last {new Date(lastUpdate).toLocaleString()}
               </p>
             )}
           </div>
 
           <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-            <span className="text-xs sm:text-sm opacity-80 whitespace-nowrap">Overall health</span>
+            <span className="text-sm sm:text-sm opacity-80 whitespace-nowrap">Overall health</span>
             <motion.span
-              className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold health-pill whitespace-nowrap"
+              className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-xs sm:text-xs font-semibold health-pill whitespace-nowrap"
               animate={{ backgroundColor: statusColor[healthRank] + '22', color: statusColor[healthRank] }}
               style={{ border: `1px solid ${statusColor[healthRank]}44` }}
             >
@@ -338,12 +338,12 @@ export default function Overview() {
           variants={cardVariant} whileHover="hover"
         >
           <div className="card-shimmer" />
-          <h3 className="text-xs sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-base sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">
             Active alerts
           </h3>
           <div className="mt-2 sm:mt-3 space-y-2">
             {alerts.length === 0 && (
-              <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">
+              <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">
                 No active alerts. All parameters are within range.
               </div>
             )}
@@ -351,7 +351,7 @@ export default function Overview() {
               {alerts.map(a => (
                 <motion.div
                   key={a.id}
-                  className="rounded-lg border px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm flex items-center gap-2 alert-row"
+                  className="rounded-lg border px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm flex items-center gap-2 alert-row"
                   style={{ borderColor: statusColor[a.level]+"55", background: statusColor[a.level]+"10", color: statusColor[a.level] }}
                   variants={alertVariant}
                   initial="hidden"
@@ -366,12 +366,12 @@ export default function Overview() {
           </div>
 
           <div className="mt-4 sm:mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-3 sm:pt-4">
-            <h4 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-gray-100">Vermicomposting tip</h4>
+            <h4 className="text-sm sm:text-sm font-semibold text-gray-900 dark:text-gray-100">Vermicomposting tip</h4>
             <div className="mt-1 tip-wrap">
               <AnimatePresence mode="wait">
                 <motion.p
                   key={tipIdx}
-                  className="text-xs sm:text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text"
+                  className="text-sm sm:text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text"
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
@@ -380,7 +380,7 @@ export default function Overview() {
                 </motion.p>
               </AnimatePresence>
             </div>
-            <div className="mt-2 text-[10px] sm:text-xs flex flex-wrap gap-3 sm:gap-4 opacity-80 text-gray-600 dark:text-gray-400">
+            <div className="mt-2 text-xs sm:text-xs flex flex-wrap gap-3 sm:gap-4 opacity-80 text-gray-600 dark:text-gray-400">
               <Link to="/about" className="hover:underline">Learn more</Link>
               <a href="https://www.youtube.com/watch?v=EshdEtWWw3A" target="_blank" rel="noreferrer" 
                 className="relative text-red-500 after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-0 after:bg-red-500 after:transition-all after:duration-300 hover:after:w-full"
@@ -451,13 +451,13 @@ function SummaryRow({
         <div className="flex flex-col gap-3 sm:gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-xs sm:text-sm md:text-base font-semibold">{title}</h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold border whitespace-nowrap"
+              <h3 className="text-base sm:text-sm md:text-base font-semibold">{title}</h3>
+              <span className="px-2 py-0.5 rounded-full text-xs sm:text-[11px] font-semibold border whitespace-nowrap"
                     style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
                 {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
               </span>
             </div>
-            <div className="mt-2 grid grid-cols-3 gap-2 sm:gap-3 text-xs sm:text-sm">
+            <div className="mt-2 grid grid-cols-3 gap-2 sm:gap-3 text-sm sm:text-sm">
               <KV label="Avg" value={`${data.avg.toFixed(1)}${unit}`} />
               <KV label="Min" value={`${data.min.toFixed(1)}${unit}`} />
               <KV label="Max" value={`${data.max.toFixed(1)}${unit}`} />
@@ -476,8 +476,8 @@ function SummaryRow({
 function KV({ label, value }: { label:string; value:string }) {
   return (
     <div className="min-w-0">
-      <div className="text-[10px] sm:text-xs opacity-70 truncate">{label}</div>
-      <div className="font-semibold tabular-nums text-xs sm:text-sm truncate">{value}</div>
+      <div className="text-xs sm:text-xs opacity-70 truncate">{label}</div>
+      <div className="font-semibold tabular-nums text-sm sm:text-sm truncate">{value}</div>
     </div>
   )
 }
@@ -518,15 +518,15 @@ function NPKRow({
         <div className="flex flex-col gap-3 sm:gap-4">
           <div className="w-full">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-xs sm:text-sm md:text-base font-semibold">NPK (ppm)</h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold border whitespace-nowrap"
+              <h3 className="text-base sm:text-sm md:text-base font-semibold">NPK (ppm)</h3>
+              <span className="px-2 py-0.5 rounded-full text-xs sm:text-[11px] font-semibold border whitespace-nowrap"
                     style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
                 {status === "ok" ? "OK" : "Watch/Alert"}
               </span>
             </div>
 
             {/* chips */}
-            <div className="mt-2 sm:mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 text-xs sm:text-sm">
+            <div className="mt-2 sm:mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 text-sm sm:text-sm">
               <NPKChip label="N" color={COLOR_N} status={statuses.n}
                        val={data.n.avg}
                        th={thresholds.n} />
@@ -566,21 +566,21 @@ function NPKChip({
   return (
     <motion.div whileHover={{ translateY: -4 }} className="rounded-xl border border-[hsl(var(--border))] dark:border-white/10 p-2 sm:p-3">
       <div className="flex items-center gap-1.5 sm:gap-2">
-        <span className="inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 rounded-full text-[10px] sm:text-xs font-bold flex-shrink-0"
+        <span className="inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 rounded-full text-xs sm:text-xs font-bold flex-shrink-0"
               style={{background: color+"22", color}}>
           {label}
         </span>
-        <span className="px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[11px] font-semibold border whitespace-nowrap"
+        <span className="px-1.5 sm:px-2 py-0.5 rounded-full text-xs sm:text-[11px] font-semibold border whitespace-nowrap"
               style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
           {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
         </span>
       </div>
       <div className="mt-1.5 sm:mt-2 text-center">
-        <div className="text-[10px] sm:text-xs opacity-70">Current</div>
+        <div className="text-xs sm:text-xs opacity-70">Current</div>
         <div className="text-xl sm:text-2xl font-bold tabular-nums" style={{ color }}>{val.toFixed(0)}</div>
-        <div className="text-[10px] sm:text-xs opacity-60">ppm</div>
+        <div className="text-xs sm:text-xs opacity-60">ppm</div>
       </div>
-      <div className="mt-1.5 sm:mt-2 text-[9px] sm:text-[11px] opacity-70 text-center">Range: {th.min}–{th.max} ppm</div>
+      <div className="mt-1.5 sm:mt-2 text-xs sm:text-[11px] opacity-70 text-center">Range: {th.min}–{th.max} ppm</div>
     </motion.div>
   )
 }

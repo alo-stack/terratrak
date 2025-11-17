@@ -4,10 +4,22 @@ import { useLocation } from "react-router-dom"
 export default function Topbar() {
   const { pathname } = useLocation()
   const title = getTitle(pathname)
+  const [isAtTop, setIsAtTop] = React.useState(true)
 
   React.useEffect(() => {
     document.title = `${title} · TerraTrak`
   }, [title])
+
+  React.useEffect(() => {
+    const handleScroll = () => {
+      const scrolled = window.scrollY
+      setIsAtTop(scrolled < 10)
+    }
+
+    handleScroll() // Check initial position
+    window.addEventListener("scroll", handleScroll, { passive: true })
+    return () => window.removeEventListener("scroll", handleScroll)
+  }, [])
 
   const quotes = [
     "Compost today, nourish tomorrow.",
@@ -19,42 +31,85 @@ export default function Topbar() {
   const q = quotes[new Date().getDate() % quotes.length]
 
   return (
-    <header
-      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3
-                 bg-white/20 dark:bg-zinc-900/20 backdrop-blur-md sticky top-0 z-50"
-    >
-      {/* Dynamic page title */}
-      <h1 className="text-lg sm:text-xl md:text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-50 text-center sm:text-left">
-        {title}
-      </h1>
-
-      {/* Responsive quote capsule */}
-      <div
+    <>
+      {/* Desktop Topbar - Sticky positioning */}
+      <header
         className={[
-          "flex items-center justify-center gap-2 cursor-default text-center",
-          "rounded-full px-3 py-1.5 max-w-full sm:max-w-none",
-          "bg-white/40 dark:bg-white/10 backdrop-blur-md",
-          "border border-white/40 dark:border-white/20",
-          "shadow-[0_4px_12px_rgba(0,0,0,0.08)]",
-          "transition-all duration-300 ease-out",
-          "hover:scale-105 hover:shadow-[0_6px_18px_rgba(0,0,0,0.15)]",
-          "hover:ring-2 hover:ring-emerald-400/40"
+          "hidden sm:block sticky top-0 z-50",
+          "bg-white/20 dark:bg-zinc-900/20",
+          "backdrop-blur-xl",
+          "border-b border-white/10 dark:border-white/5"
         ].join(" ")}
-        title={q}
-        aria-label="Vermicompost tip"
+        style={{ WebkitBackdropFilter: 'blur(24px)' }}
       >
-        <LeafIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400 drop-shadow-sm shrink-0" />
-        
-        {/* TerraTrak text (visible only on mobile) */}
-        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 sm:hidden">
-          TerraTrak •
-        </span>
+        <div className="px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-lg md:text-xl lg:text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-50">
+              {title}
+            </h1>
+            
+            <div
+              className="flex items-center gap-2 cursor-default rounded-full px-3 py-1.5 min-w-0
+                         bg-white/40 dark:bg-white/10 backdrop-blur-md
+                         border border-white/40 dark:border-white/20
+                         shadow-[0_4px_12px_rgba(0,0,0,0.08)]
+                         transition-all duration-200 ease-out
+                         hover:scale-105 hover:shadow-[0_6px_18px_rgba(0,0,0,0.15)]
+                         hover:ring-2 hover:ring-emerald-400/40"
+              title={q}
+              aria-label="Vermicompost tip"
+              style={{ WebkitBackdropFilter: 'blur(12px)' }}
+            >
+              <LeafIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400 drop-shadow-sm shrink-0" />
+              <span className="hidden md:inline text-emerald-600/40 dark:text-emerald-400/40">•</span>
+              <p className="text-xs md:text-sm text-gray-800 dark:text-gray-100 italic truncate">
+                {q}
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
 
-        <p className="text-xs md:text-sm text-gray-800 dark:text-gray-100 italic truncate">
-          {q}
-        </p>
-      </div>
-    </header>
+      {/* Mobile Topbar - Fixed positioning (like mobile sidebar) */}
+      <header
+        className={[
+          "sm:hidden fixed top-0 left-0 right-0 z-50",
+          "bg-white/25 dark:bg-zinc-900/35",
+          "backdrop-blur-xl",
+          "border-b border-white/40 dark:border-white/25",
+          "shadow-[0_4px_24px_rgba(0,0,0,0.12)]",
+          "transition-all duration-300 ease-out"
+        ].join(" ")}
+        style={{ WebkitBackdropFilter: 'blur(24px)' }}
+      >
+        <div className="px-3 py-2.5">
+          <h1 className="text-base font-semibold tracking-tight text-gray-900 dark:text-gray-50 text-center">
+            {title}
+          </h1>
+          
+          {/* Quote - Only visible at top */}
+          <div
+            className={[
+              "overflow-hidden transition-all duration-300 ease-out",
+              isAtTop ? "max-h-20 opacity-100 mt-2" : "max-h-0 opacity-0 mt-0"
+            ].join(" ")}
+          >
+            <div
+              className="flex items-center justify-center gap-2 rounded-full px-3 py-1.5 mx-auto max-w-fit
+                         bg-white/50 dark:bg-white/10 backdrop-blur-md
+                         border border-white/50 dark:border-white/25
+                         shadow-[0_2px_8px_rgba(0,0,0,0.1)]"
+              style={{ WebkitBackdropFilter: 'blur(12px)' }}
+            >
+              <LeafIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 drop-shadow-sm shrink-0" />
+              <p className="text-xs text-gray-800 dark:text-gray-100 italic">
+                {q}
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
+    </>
   )
 }
 

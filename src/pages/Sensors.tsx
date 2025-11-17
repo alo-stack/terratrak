@@ -11,6 +11,8 @@ import {
 } from "firebase/firestore"
 import { db } from "../lib/firebase"
 import { motion, AnimatePresence, easeOut } from "framer-motion"
+import { computeTrend, formatValue, movingAverage, stddev, detectAnomalies, setTrendSettings, getTrendSettings, pearsonCorrelation } from "../lib/trend"
+import HelpTip from "../components/HelpTip"
 
 /* ----------------------------- Config --------------------------------- */
 const DEVICE_ID = "esp32-001"
@@ -54,6 +56,8 @@ const WINDOWS: Record<RangeKey, number> = {
   "24h": 24 * 60 * 60 * 1000,
   "7d": 7 * 24 * 60 * 60 * 1000,
 }
+
+/* trend helpers live in src/lib/trend.ts */
 
 /* ---------------------- Firestore hook ------------------------ */
 function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID) {
@@ -191,6 +195,9 @@ function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID) {
 export default function Sensors() {
   const [range, setRange] = React.useState<RangeKey>("live")
   const { samples, mode } = useSensorHistory(range, DEVICE_ID)
+  const [showSettings, setShowSettings] = React.useState(false)
+  const [trendSettingsState, setTrendSettingsState] = React.useState(() => getTrendSettings())
+  const [settingsVersion, setSettingsVersion] = React.useState(0)
 
   const cutoff = Date.now() - WINDOWS[range]
   const windowed = React.useMemo(
@@ -287,21 +294,77 @@ export default function Sensors() {
 
   const insights = React.useMemo(() => {
     const list: string[] = []
-    if (sMoist === "low")
-      list.push("Moisture is trending low—consider watering lightly to reach 60–70%.")
-    if (sMoist === "high")
-      list.push("Moisture is high—add dry bedding and turn the bin to improve airflow.")
-    if (sTemp === "high")
-      list.push("Temperature is elevated—mix the bedding and reduce feed volume.")
-    if (sTemp === "low")
-      list.push("Temperature is low—insulate the bin and avoid over-watering.")
+    const N = Math.min(96, series.temp.length)
+    const tt = computeTrend(series.temp.slice(-N), windowed.slice(-N).map(s=>s.ts))
+    const M = Math.min(96, series.moist.length)
+    const mt = computeTrend(series.moist.slice(-M), windowed.slice(-M).map(s=>s.ts))
+    const NN = Math.min(96, series.n.length)
+    const nT = computeTrend(series.n.slice(-NN), windowed.slice(-NN).map(s=>s.ts))
+    const PP = Math.min(96, series.p.length)
+    const pT = computeTrend(series.p.slice(-PP), windowed.slice(-PP).map(s=>s.ts))
+    const KK = Math.min(96, series.k.length)
+    const kT = computeTrend(series.k.slice(-KK), windowed.slice(-KK).map(s=>s.ts))
+
+    // Simple, actionable summaries (short)
+    if (mt.trend.includes('Falling') || sMoist === 'low')
+      list.push(`Moisture falling — add a little water.`)
+    else if (mt.trend.includes('Rising') || sMoist === 'high')
+      list.push(`Moisture rising — add dry bedding and aerate.`)
+
+    if (tt.trend.includes('Rising') || sTemp === 'high')
+      list.push(`Temperature rising — reduce fresh food or increase ventilation.`)
+    else if (tt.trend.includes('Falling') || sTemp === 'low')
+      list.push(`Temperature falling — insulate or check moisture.`)
+
     const npkOkay = [sN, sP, sK].every((s) => s === "ok")
-    if (!npkOkay)
-      list.push("NPK balance is off—add carbon for high N, or a light feed for low N/P/K.")
-    if (list.length === 0)
-      list.push("All parameters look healthy. Maintain current routine.")
+    if (!npkOkay) {
+      const bad = [] as string[]
+      if (sN !== 'ok') bad.push(`N ${nT.trend.toLowerCase()} ${nT.pct.toFixed(0)}%`)
+      if (sP !== 'ok') bad.push(`P ${pT.trend.toLowerCase()} ${pT.pct.toFixed(0)}%`)
+      if (sK !== 'ok') bad.push(`K ${kT.trend.toLowerCase()} ${kT.pct.toFixed(0)}%`)
+      list.push(`NPK imbalance: ${bad.join(', ')} — adjust feed or bedding accordingly.`)
+    }
+
+    if (list.length === 0) list.push('All parameters look healthy. Maintain current routine.')
+    // Cross-sensor correlations (conservative messaging)
+    try {
+      const N = Math.min(96, series.temp.length, series.moist.length)
+      if (N >= 12) {
+        const sTemp = series.temp.slice(-N)
+        const sMoist = series.moist.slice(-N)
+        const rTM = pearsonCorrelation(sTemp, sMoist)
+          if (Number.isFinite(rTM) && Math.abs(rTM) >= 0.35) {
+            const dir = rTM > 0 ? 'positive' : 'negative'
+            list.push(`Temp ↔ Moisture: ${dir} correlation (r=${rTM}). Check logs to confirm.`)
+          }
+
+        // moisture vs nutrients
+        const nutrients = ['n','p','k'] as const
+        for (const key of nutrients) {
+          const sNut = (series as any)[key].slice(-N)
+          const r = pearsonCorrelation(sMoist, sNut)
+          if (Number.isFinite(r) && Math.abs(r) >= 0.35) {
+            const dir = r > 0 ? 'positive' : 'negative'
+            list.push(`Moisture ↔ ${key.toUpperCase()}: ${dir} correlation (r=${r}). Investigate if moisture affects nutrient readings.`)
+          }
+        }
+      }
+    } catch (e) {
+      // fail safe: do not break insights
+      console.warn('correlation calc failed', e)
+    }
     return list
-  }, [sTemp, sMoist, sN, sP, sK])
+  }, [sTemp, sMoist, sN, sP, sK, settingsVersion])
+
+  function helpTextForInsight(text: string){
+    const t = text.toLowerCase()
+    if (t.includes('moist') || t.includes('moisture')) return 'Moisture: percent water in the pile. If it keeps falling, add small amounts of water and mix; don’t soak it.'
+    if (t.includes('temperature') || t.includes('temp')) return 'Temperature: shows heat from decomposition. A steady rise can mean high activity; a big jump may need a turn or cooling.'
+    if (t.includes('npk') || t.includes('n ') || t.includes('p ') || t.includes('k ')) return 'N,P,K: nutrient readings in ppm. If one is out of range, review feed ingredients or dilution—check before large changes.'
+    if (t.includes('correlation') || t.includes('↔')) return 'Shows how two metrics move together (association). Not proof one causes the other.'
+    if (t.includes('anomaly') || t.includes('flag')) return 'Anomaly: a reading that differs a lot from recent values. Re-check sensor and recent actions before reacting.'
+    return 'Tip: compare with recent actions (watering, feeding, turning) to decide what to do.'
+  }
 
   const cardMotion = {
     initial: { opacity: 0, y: 20, scale: 0.97 },
@@ -337,6 +400,14 @@ export default function Sensors() {
             >
               {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
             </span>
+            <button
+              onClick={() => setShowSettings(s => !s)}
+              className="ml-2 px-2 py-0.5 rounded-md text-xs bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200"
+              aria-expanded={showSettings}
+            >
+              Settings
+            </button>
+            
           </div>
           <p className="text-xs opacity-70 italic">
             {range === "live" ? "Last 30 mins" : `Range: ${range}`}
@@ -351,6 +422,37 @@ export default function Sensors() {
                   : "N/A"
               }`}
         </p>
+        {showSettings && (
+          <div className="mt-3 p-3 border rounded-lg bg-white/60 dark:bg-gray-800/40">
+            <h4 className="text-sm font-semibold mb-2">Trend settings</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <label className="text-xs">
+                Slope norm threshold
+                <input type="number" step="0.1" value={String(trendSettingsState.slopeNormThreshold ?? 0.6)}
+                  onChange={(e)=> setTrendSettingsState(s=>({...s, slopeNormThreshold: Number(e.target.value)}))}
+                  className="mt-1 w-full px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 text-sm" />
+              </label>
+              <label className="text-xs">
+                Percent change threshold
+                <input type="number" step="0.1" value={String(trendSettingsState.pctThreshold ?? 3)}
+                  onChange={(e)=> setTrendSettingsState(s=>({...s, pctThreshold: Number(e.target.value)}))}
+                  className="mt-1 w-full px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 text-sm" />
+              </label>
+              <label className="text-xs">
+                Slight change threshold
+                <input type="number" step="0.1" value={String(trendSettingsState.slightPct ?? 1.5)}
+                  onChange={(e)=> setTrendSettingsState(s=>({...s, slightPct: Number(e.target.value)}))}
+                  className="mt-1 w-full px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 text-sm" />
+              </label>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button className="px-3 py-1 rounded bg-indigo-600 text-white text-sm"
+                onClick={()=>{ setTrendSettings(trendSettingsState); setSettingsVersion(v=>v+1); setShowSettings(false)}}>Save</button>
+              <button className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-sm"
+                onClick={()=>{ setTrendSettingsState(getTrendSettings()); setShowSettings(false)}}>Cancel</button>
+            </div>
+          </div>
+        )}
       </motion.section>
 
       {/* Range Buttons */}
@@ -376,21 +478,19 @@ export default function Sensors() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
         <KpiCard title="Temperature" unit="°C" color={colorFor(sTemp)} status={sTemp} values={kpi.temp} range={range} />
         <KpiCard title="Moisture" unit="%" color={colorFor(sMoist)} status={sMoist} values={kpi.moist} range={range} />
-        <NpkKpiCard n={kpi.n.avg} p={kpi.p.avg} k={kpi.k.avg} status={{ n: sN, p: sP, k: sK }} />
+        <NpkKpiCard nSeries={series.n} pSeries={series.p} kSeries={series.k} kpi={kpi} status={{ n: sN, p: sP, k: sK }} />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 gap-4 mt-5">
-        <ChartCard title="Temperature" unit="°C" color="#10b981" data={series.temp} bigValue={kpi.temp.avg} />
-        <ChartCard title="Moisture" unit="%" color="#38bdf8" data={series.moist} bigValue={kpi.moist.avg} />
-        <ChartCard
-          title="NPK (mean)"
-          unit=""
-          color="#f59e0b"
-          data={series.n.map((v, i) =>
-            Math.round((v + (series.p[i] ?? v) + (series.k[i] ?? v)) / 3)
-          )}
-          bigValue={Math.round((kpi.n.avg + kpi.p.avg + kpi.k.avg) / 3)}
+        <ChartCard title="Temperature" unit="°C" color="#10b981" data={series.temp} times={windowed.map(s=>s.ts)} bigValue={kpi.temp.avg} />
+        <ChartCard title="Moisture" unit="%" color="#38bdf8" data={series.moist} times={windowed.map(s=>s.ts)} bigValue={kpi.moist.avg} />
+        <NpkChartCard
+          nSeries={series.n}
+          pSeries={series.p}
+          kSeries={series.k}
+          times={windowed.map(s => s.ts)}
+          kpi={{ n: kpi.n, p: kpi.p, k: kpi.k }}
         />
       </div>
 
@@ -416,7 +516,11 @@ export default function Sensors() {
                 className="flex items-start justify-center sm:justify-start gap-2"
               >
                 <span className="mt-[6px] inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>{t}</span>
+                <span className="flex-1">{t}</span>
+                {/* help tip: brief 1-line explanation */}
+                <span className="ml-2">
+                  <HelpTip text={helpTextForInsight(t)} />
+                </span>
               </motion.li>
             ))}
           </AnimatePresence>
@@ -535,35 +639,18 @@ function KpiCard({
   )
 }
 
-function NpkKpiCard({
-  n,
-  p,
-  k,
-  status,
-}: {
-  n: number
-  p: number
-  k: number
-  status: { n: Status; p: Status; k: Status }
-}) {
-  const item = (label: string, v: number, s: Status) => (
-    <div
-      className="flex items-center justify-between rounded-lg border px-3 py-2 w-full sm:w-auto"
-      style={{
-        borderColor: colorFor(s) + "55",
-        background: colorFor(s) + "0F",
-      }}
-    >
-      <div className="flex flex-col sm:grid sm:grid-cols-3 gap-3 sm:gap-6 justify-items-center sm:justify-items-start">
-        <span
-          className="inline-block w-2.5 h-2.5 rounded-full"
-          style={{ backgroundColor: colorFor(s) }}
-        />
-        <span className="text-xs opacity-80">{label}</span>
-      </div>
-      <div className="font-semibold tabular-nums">{v}</div>
-    </div>
-  )
+function NpkKpiCard({ nSeries, pSeries, kSeries, kpi, status }:{ nSeries:number[]; pSeries:number[]; kSeries:number[]; kpi:any; status:{ n:Status; p:Status; k:Status } }){
+  const COLORS = { n: '#22c55e', p: '#06b6d4', k: '#f59e0b' }
+  const nMA = movingAverage(nSeries, 5).at(-1) ?? 0
+  const pMA = movingAverage(pSeries, 5).at(-1) ?? 0
+  const kMA = movingAverage(kSeries, 5).at(-1) ?? 0
+  const nSd = stddev(nSeries)
+  const pSd = stddev(pSeries)
+  const kSd = stddev(kSeries)
+  const nAn = detectAnomalies(nSeries).length
+  const pAn = detectAnomalies(pSeries).length
+  const kAn = detectAnomalies(kSeries).length
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -576,13 +663,29 @@ function NpkKpiCard({
       <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
       <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
 
-      <h4 className="text-base font-semibold mb-3">NPK</h4>
-      <div className="flex flex-col sm:grid sm:grid-cols-3 gap-3 justify-items-center sm:justify-items-start">
-        {item("N", n, status.n)}
-        {item("P", p, status.p)}
-        {item("K", k, status.k)}
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="text-base font-semibold">NPK</h4>
+        <span className="px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap"
+          style={{ color: status.n === 'ok' && status.p === 'ok' && status.k === 'ok' ? '#10b981' : '#f59e0b', borderColor: (status.n === 'ok' && status.p === 'ok' && status.k === 'ok' ? '#10b981' : '#f59e0b') + '55', background: (status.n === 'ok' && status.p === 'ok' && status.k === 'ok' ? '#10b981' : '#f59e0b') + '10' }}>
+            { (status.n === 'ok' && status.p === 'ok' && status.k === 'ok') ? 'OK' : 'Check' }
+        </span>
       </div>
-      <div className="mt-2 text-xs opacity-70">Units based on your NPK sensor (e.g., ppm / a.u.).</div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[{label:'N', val:kpi.n.avg, color:COLORS.n, ma:nMA, sd:nSd, an:nAn, stat:status.n},{label:'P', val:kpi.p.avg, color:COLORS.p, ma:pMA, sd:pSd, an:pAn, stat:status.p},{label:'K', val:kpi.k.avg, color:COLORS.k, ma:kMA, sd:kSd, an:kAn, stat:status.k}].map((it)=> (
+          <div key={it.label} className="rounded-lg border p-3 text-center" style={{ borderColor: it.color+'33' }}>
+            <div className="flex items-center justify-center gap-2">
+              <span className="inline-block w-3 h-3 rounded-full" style={{ background: it.color }} />
+              <div className="text-xs opacity-80">{it.label}</div>
+              <div className="px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ borderColor: colorFor(it.stat)+'55', background: colorFor(it.stat)+'10', color: colorFor(it.stat) }}>{it.stat.toUpperCase()}</div>
+            </div>
+            <div className="text-2xl font-bold mt-2 tabular-nums" style={{ color: it.color }}>{it.val}</div>
+            <div className="text-xs opacity-70 mt-1">MA(5): {formatValue(it.ma,'ppm')} • σ: {it.sd}</div>
+            <div className="text-xs opacity-60 mt-1">Anomalies: {it.an}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 text-xs opacity-70">Units based on your NPK sensor (ppm). Analytics: moving average (MA), standard deviation (σ), anomaly count (z≥2).</div>
     </motion.div>
   )
 }
@@ -592,14 +695,24 @@ function ChartCard({
   unit,
   color,
   data,
+  times,
   bigValue,
 }: {
   title: string
   unit: string
   color: string
   data: number[]
+  times?: number[]
   bigValue?: number
 }) {
+  // compute refined trend metrics using regression + percent change (pass timestamps if available)
+  const SL = Math.min(96, data.length)
+  const t = computeTrend(data.slice(-SL), times ? times.slice(-SL) : undefined)
+  const pctStr = Number.isFinite(t.pct) ? `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%` : '--'
+  const trend = t.trend
+  const interp = t.interp
+  const minV = data.length ? Math.min(...data) : 0
+  const maxV = data.length ? Math.max(...data) : 0
   return (
     <motion.section
       initial={{ opacity: 0, y: 20 }}
@@ -618,15 +731,154 @@ function ChartCard({
           {Number.isFinite(bigValue) ? `${bigValue!.toFixed(1)}${unit}` : "--"}
         </div>
       </div>
-      <AutoChart data={data} stroke={color} />
+      <AutoChart data={data} stroke={color} times={times} unit={unit} />
+
+      <div className="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-gray-600 dark:text-gray-300">
+        <div className="flex items-center gap-3">
+          <span className="font-medium">Δ:</span>
+          <span className="tabular-nums">{pctStr}</span>
+          <span className="opacity-70">•</span>
+          <span className="font-medium">Trend:</span>
+          <span>{trend}</span>
+        </div>
+        <div className="opacity-70 text-xs sm:text-sm">
+          {interp} — Min: <span className="tabular-nums">{minV.toFixed(1)}{unit}</span>
+          <span className="mx-2">•</span>
+          Max: <span className="tabular-nums">{maxV.toFixed(1)}{unit}</span>
+        </div>
+      </div>
     </motion.section>
   )
 }
 
+/* ------------------- Multi-series NPK chart ------------------- */
+function NpkChartCard({
+  nSeries, pSeries, kSeries, times, kpi
+}:{
+  nSeries:number[]; pSeries:number[]; kSeries:number[]; times?:number[]; kpi: any
+}){
+  const COLORS = { n: '#22c55e', p: '#06b6d4', k: '#f59e0b' }
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      whileHover={{ scale: 1.02, y: -4 }}
+      className="relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 text-center sm:text-left overflow-hidden"
+    >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+      <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+      <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-base font-semibold">NPK (ppm)</h4>
+        <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full inline-block" style={{background:COLORS.n}} />N: <span className="font-semibold tabular-nums">{kpi.n.avg}</span></div>
+          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full inline-block" style={{background:COLORS.p}} />P: <span className="font-semibold tabular-nums">{kpi.p.avg}</span></div>
+          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full inline-block" style={{background:COLORS.k}} />K: <span className="font-semibold tabular-nums">{kpi.k.avg}</span></div>
+        </div>
+      </div>
+
+      <AutoChartMulti
+        series={[{data:nSeries,color:COLORS.n,name:'N'},{data:pSeries,color:COLORS.p,name:'P'},{data:kSeries,color:COLORS.k,name:'K'}]}
+        times={times}
+        unit="ppm"
+      />
+
+      <div className="mt-3 text-sm opacity-75">Interpretation: check individual nutrient trends; avoid relying on a single mean value.</div>
+    </motion.section>
+  )
+}
+
+function AutoChartMulti({ series, times, unit }:{ series:{data:number[]; color:string; name?:string}[]; times?:number[]; unit?:string }){
+  const ref = React.useRef<HTMLDivElement|null>(null)
+  const [size, setSize] = React.useState({ w: 900, h: 220 })
+  const [hoverIndex, setHoverIndex] = React.useState<number|null>(null)
+
+  React.useEffect(() => {
+    const update = () => {
+      const w = ref.current?.clientWidth ?? 900
+      const h = clamp(Math.round(w * 0.24), 150, 280)
+      setSize({ w, h })
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    if (ref.current) ro.observe(ref.current)
+    return () => ro.disconnect()
+  }, [])
+
+  const PAD = 16
+  const { w: W, h: H } = size
+  const sliced = series.map(s=>s.data)
+  const flat = sliced.flat()
+  const minV = Math.min(...(flat.length?flat:[0]))
+  const maxV = Math.max(...(flat.length?flat:[1]))
+  const lo = minV - (maxV - minV) * 0.15
+  const hi = maxV + (maxV - minV) * 0.15 || 1
+  const norm = (v:number) => (1 - (v - lo) / (hi - lo)) * (H - PAD * 2) + PAD
+  const step = (W - PAD * 2) / Math.max(1, (sliced[0]?.length || 1) - 1)
+
+  const clampIndex = (i:number) => Math.max(0, Math.min((sliced[0]?.length||1) - 1, i))
+  const handlePointer = (clientX:number) => {
+    const rect = ref.current?.getBoundingClientRect()
+    if (!rect) return
+    const scale = W / rect.width
+    const svgX = (clientX - rect.left) * scale
+    const idx = clampIndex(Math.round((svgX - PAD) / step))
+    setHoverIndex(idx)
+  }
+
+  const onMouseMove = (e:React.MouseEvent) => handlePointer(e.clientX)
+  const onMouseLeave = () => setHoverIndex(null)
+  const onTouchMove = (e:React.TouchEvent) => { if (e.touches && e.touches[0]) handlePointer(e.touches[0].clientX) }
+  const onTouchEnd = () => setHoverIndex(null)
+
+  return (
+    <div ref={ref} className="w-full mt-3">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+        <g opacity=".12" stroke="currentColor">
+          <line x1={PAD} y1={PAD} x2={W - PAD} y2={PAD} />
+          <line x1={PAD} y1={H / 2} x2={W - PAD} y2={H / 2} />
+          <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} />
+        </g>
+        {sliced.map((arr, idx) => {
+          if (!arr.length) return null
+          const d = `M ${PAD},${norm(arr[0])} ` + arr.slice(1).map((v,i)=>`L ${PAD+(i+1)*step},${norm(v)}`).join(" ")
+          return <path key={idx} d={d} fill="none" stroke={series[idx].color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" opacity={0.95} />
+        })}
+        {sliced.map((arr, idx) => arr.length ? <circle key={'c'+idx} cx={PAD+(arr.length-1)*step} cy={norm(arr[arr.length-1])} r={3.2} fill={series[idx].color} /> : null)}
+
+        {hoverIndex !== null && (
+          <g>
+            <line x1={PAD+hoverIndex*step} x2={PAD+hoverIndex*step} y1={PAD} y2={H-PAD} stroke="#9ca3af" strokeWidth={1} strokeDasharray="3 3" opacity={0.7} />
+            {sliced.map((arr, idx) => arr.length ? <circle key={'hc'+idx} cx={PAD+hoverIndex*step} cy={norm(arr[hoverIndex])} r={4} fill={series[idx].color} /> : null)}
+            {(() => {
+              const ts = times && times[hoverIndex]
+              const timeStr = ts ? new Date(ts).toLocaleString() : ''
+              const vals = sliced.map((arr, idx) => ({ color: series[idx].color, v: arr[hoverIndex] }))
+              const tx = Math.max(PAD + 4, Math.min(W - PAD - 160, PAD+hoverIndex*step - 80))
+              const ty = PAD
+              return (
+                <g transform={`translate(${tx}, ${ty})`}>
+                  <rect x={0} y={0} rx={8} ry={8} width={160} height={26 + vals.length*14} fill="#111827" opacity={0.95} />
+                  <text x={8} y={14} fontSize={11} fill="#d1d5db">{timeStr}</text>
+                  {vals.map((it, i) => <text key={i} x={8} y={30 + i*14} fontSize={12} fill={it.color}>{`${it.v !== undefined ? it.v : '--'} ${unit ?? ''}`}</text>)}
+                </g>
+              )
+            })()}
+          </g>
+        )}
+      </svg>
+    </div>
+  )
+}
+
 /* ------------------------------ Chart ------------------------------ */
-function AutoChart({ data, stroke }: { data: number[]; stroke: string }) {
+function AutoChart({ data, stroke, times, unit }: { data: number[]; stroke: string; times?: number[]; unit?: string }) {
   const ref = React.useRef<HTMLDivElement | null>(null)
   const [size, setSize] = React.useState({ w: 900, h: 220 })
+  const [hoverIndex, setHoverIndex] = React.useState<number | null>(null)
+  const [hoverX, setHoverX] = React.useState<number | null>(null)
 
   React.useEffect(() => {
     const update = () => {
@@ -662,9 +914,28 @@ function AutoChart({ data, stroke }: { data: number[]; stroke: string }) {
       ` L ${PAD + (data.length - 1) * step},${H - PAD} Z`
     : ""
 
+  const clampIndex = (i:number) => Math.max(0, Math.min(data.length - 1, i))
+
+  const handlePointer = (clientX:number) => {
+    const rect = ref.current?.getBoundingClientRect()
+    if (!rect) return
+    const scale = W / rect.width
+    const svgX = (clientX - rect.left) * scale
+    const idx = clampIndex(Math.round((svgX - PAD) / step))
+    setHoverIndex(idx)
+    setHoverX(PAD + idx * step)
+  }
+
+  const onMouseMove = (e: React.MouseEvent) => handlePointer(e.clientX)
+  const onMouseLeave = () => { setHoverIndex(null); setHoverX(null) }
+  const onTouchMove = (e: React.TouchEvent) => { if (e.touches && e.touches[0]) handlePointer(e.touches[0].clientX) }
+  const onTouchEnd = () => { setHoverIndex(null); setHoverX(null) }
+
   return (
     <div ref={ref} className="w-full mt-3">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}
+        onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}
+        onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
         <defs>
           <linearGradient id="lineGradAuto" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={stroke} stopOpacity="0.55" />
@@ -694,6 +965,28 @@ function AutoChart({ data, stroke }: { data: number[]; stroke: string }) {
             r="3.6"
             fill={stroke}
           />
+        )}
+        {hoverIndex !== null && hoverX !== null && data[hoverIndex] !== undefined && (
+          <g>
+            <line x1={hoverX} x2={hoverX} y1={PAD} y2={H - PAD} stroke={stroke} strokeWidth={1} strokeDasharray="4 4" opacity={0.6} />
+            <circle cx={hoverX} cy={norm(data[hoverIndex])} r={4.5} fill={stroke} />
+            {/* tooltip */}
+            {(() => {
+              const val = data[hoverIndex]
+              const ts = times && times[hoverIndex]
+              const txt = `${Number.isFinite(val) ? val.toFixed(2) : '--'}${unit ?? ''}`
+              const timeStr = ts ? new Date(ts).toLocaleString() : ''
+              const tx = Math.max(PAD + 8, Math.min(W - PAD - 110, (hoverX ?? PAD) - 50))
+              const ty = Math.max(18, norm(val) - 36)
+              return (
+                <g transform={`translate(${tx}, ${ty})`}>
+                  <rect x={0} y={-14} rx={6} ry={6} width={110} height={36} fill="#111827" opacity={0.9} />
+                  <text x={8} y={2} fontSize={12} fill="#fff">{txt}</text>
+                  {timeStr && <text x={8} y={16} fontSize={11} fill="#d1d5db">{timeStr}</text>}
+                </g>
+              )
+            })()}
+          </g>
         )}
       </svg>
     </div>

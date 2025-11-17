@@ -63,6 +63,22 @@ export default function About() {
           <Tag>Dashboard</Tag>
           <Tag float>Alerts</Tag>
         </div>
+
+        {/* Data analysis card: simple explanations for users */}
+        <div className="mt-4 rounded-2xl border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--card))] p-4">
+          <h3 className="text-sm font-semibold mb-2">Data analyses on this dashboard</h3>
+          <div className="text-xs text-gray-700 dark:text-gray-200 space-y-2">
+            <div><strong>Moving average:</strong> smooths short spikes to show general direction.</div>
+            <div><strong>Standard deviation (σ):</strong> measures how much values vary — higher means less stable.</div>
+            <div><strong>Anomaly detection:</strong> flags points that differ a lot from recent behavior (possible sensor glitches or events).</div>
+            <div><strong>Trend (Δ, slope):</strong> shows percent change and rate over time (we use timestamps when available).</div>
+            <div><strong>Correlation (r):</strong> tells if two metrics move together (positive) or opposite (negative). It’s an association, not proof of cause.</div>
+            <div><strong>Stability score:</strong> combined measure of variability across metrics — helps decide if the system is steady.</div>
+            <div><strong>NPK analytics:</strong> separate N, P, K lines, moving averages and anomaly counts to spot nutrient imbalances.</div>
+            <div><strong>Weekly summary:</strong> averages, σ, anomaly counts and out-of-range tallies for a quick health check.</div>
+            <div><strong>CSV export:</strong> download raw values for offline review or record keeping.</div>
+          </div>
+        </div>
       </section>
 
       {/* Team — narrower on xl */}

@@ -148,3 +148,92 @@ export function pearsonCorrelation(a:number[], b:number[]) {
   if (!den) return NaN
   return Number((num / den).toFixed(2))
 }
+
+// Rate of change per hour (linear regression over time if timestamps provided)
+export function rateOfChangePerHour(values:number[], times?:number[]) {
+  const n = values.length
+  if (n < 2) return { slopePerHour: 0 }
+  try {
+    const N = Math.min(48, n)
+    const ys = values.slice(-N)
+    const ts = times && times.length === values.length ? times.slice(-N).map(t=>Number(t)) : ys.map((_,i)=>i)
+    const t0 = ts[0]
+    const xs = ts.map(t => (t - t0) / (1000 * 60 * 60)) // hours
+    const xm = xs.reduce((a,b)=>a+b,0)/xs.length
+    const ym = ys.reduce((a,b)=>a+b,0)/ys.length
+    let num = 0, den = 0
+    for (let i=0;i<xs.length;i++){ const dx = xs[i]-xm; num += dx * (ys[i]-ym); den += dx*dx }
+    const slope = den ? num/den : 0 // value per hour
+    return { slopePerHour: Number(slope.toFixed(4)) }
+  } catch (e) {
+    return { slopePerHour: 0 }
+  }
+}
+
+// Predict time (ms since epoch) to reach target value using linear slope per hour
+export function timeToTarget(values:number[], times:number[]|undefined, target:number) {
+  if (!values.length) return null
+  const last = values[values.length-1]
+  const { slopePerHour } = rateOfChangePerHour(values, times)
+  if (!Number.isFinite(slopePerHour) || Math.abs(slopePerHour) < 1e-6) return null
+  const hours = (target - last) / slopePerHour
+  if (!Number.isFinite(hours)) return null
+  const eta = Date.now() + Math.round(hours * 3600 * 1000)
+  return { hours, eta }
+}
+
+// Composite stability score (0-100) smaller is less stable; higher is better
+export function stabilityScore(seriesMap:{[k:string]: number[]}){
+  // weights emphasize temp and moisture
+  const weights:Record<string,number> = { temp: 0.35, moist: 0.35, n:0.1, p:0.1, k:0.1 }
+  let score = 100
+  for (const k of Object.keys(weights)){
+    const arr = seriesMap[k] ?? []
+    if (!arr || arr.length < 4) continue
+    const sd = stddev(arr)
+    const norm = Math.min(1, sd / (k==='moist'?10 : k==='temp'?12 : 100))
+    score -= norm * weights[k] * 100
+  }
+  return Math.round(Math.max(0, Math.min(100, score)))
+}
+
+// Moisture deficit/saturation relative to target band
+export function moistureDeficit(avgMoist:number, targetLow=50, targetHigh=65){
+  if (!Number.isFinite(avgMoist)) return { deficit: 0, status: 'unknown' }
+  if (avgMoist >= targetLow && avgMoist <= targetHigh) return { deficit: 0, status: 'within' }
+  if (avgMoist < targetLow) return { deficit: Number((targetLow - avgMoist).toFixed(1)), status: 'dry' }
+  return { deficit: Number((avgMoist - targetHigh).toFixed(1)), status: 'wet' }
+}
+
+// Cumulative degree-hours (approx) above baseline temp
+export function cumulativeDegreeHours(temps:number[], times?:number[], baseline=20){
+  if (!temps.length) return 0
+  let total = 0
+  if (times && times.length === temps.length){
+    for (let i=1;i<temps.length;i++){
+      const dt = (times[i]-times[i-1]) / 3600000
+      const avgT = (temps[i] + temps[i-1]) / 2
+      total += Math.max(0, avgT - baseline) * Math.max(0, dt)
+    }
+  } else {
+    // assume hourly samples
+    for (let i=0;i<temps.length;i++) total += Math.max(0, temps[i]-baseline)
+  }
+  return Number(total.toFixed(1))
+}
+
+// Basic sensor health metrics: lastSeen, medianIntervalMinutes, jitter, missingPercent
+export function sensorHealthMetrics(times:number[]|undefined){
+  if (!times || times.length < 2) return { lastSeen: times?.at(-1) ?? null, medianIntervalMin: null, jitter: null, stale: false }
+  const diffs:number[] = []
+  for (let i=1;i<times.length;i++) diffs.push((times[i]-times[i-1])/60000)
+  // median
+  const sorted = [...diffs].sort((a,b)=>a-b)
+  const mid = Math.floor(sorted.length/2)
+  const median = sorted.length%2 ? sorted[mid] : (sorted[mid-1]+sorted[mid])/2
+  // jitter = median absolute deviation
+  const mad = (sorted.reduce((s,x)=>s+Math.abs(x-median),0)/sorted.length) || 0
+  const lastSeen = times.at(-1) ?? null
+  const stale = lastSeen ? (Date.now() - lastSeen) > 1000*60*60 : true // stale if >1 hour
+  return { lastSeen, medianIntervalMin: Number(median.toFixed(1)), jitter: Number(mad.toFixed(1)), stale }
+}

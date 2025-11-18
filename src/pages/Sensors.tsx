@@ -8,10 +8,14 @@ import {
   onSnapshot,
   Timestamp,
   limit as qlimit,
+  addDoc,
+  serverTimestamp,
+  doc,
+  getDoc,
 } from "firebase/firestore"
 import { db } from "../lib/firebase"
 import { motion, AnimatePresence, easeOut } from "framer-motion"
-import { computeTrend, formatValue, movingAverage, stddev, detectAnomalies, setTrendSettings, getTrendSettings, pearsonCorrelation } from "../lib/trend"
+import { computeTrend, formatValue, movingAverage, stddev, detectAnomalies, setTrendSettings, getTrendSettings, pearsonCorrelation, rateOfChangePerHour, timeToTarget, stabilityScore, moistureDeficit, cumulativeDegreeHours, sensorHealthMetrics } from "../lib/trend"
 import HelpTip from "../components/HelpTip"
 
 /* ----------------------------- Config --------------------------------- */
@@ -127,6 +131,8 @@ function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID) {
     )
 
     let sawValid = false
+
+    
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -263,6 +269,8 @@ export default function Sensors() {
         },
         moist: {
           avg: moistAvg,
+
+        
           min: moistMin,
           max: moistMax,
         },
@@ -293,7 +301,8 @@ export default function Sensors() {
   const sK = statusFor(kpi.k.avg, RANGES.k.min, RANGES.k.max)
 
   const insights = React.useMemo(() => {
-    const list: string[] = []
+    type Insight = { text: string; level: 'ok' | 'notice' | 'urgent' }
+    const list: Insight[] = []
     const N = Math.min(96, series.temp.length)
     const tt = computeTrend(series.temp.slice(-N), windowed.slice(-N).map(s=>s.ts))
     const M = Math.min(96, series.moist.length)
@@ -305,52 +314,51 @@ export default function Sensors() {
     const KK = Math.min(96, series.k.length)
     const kT = computeTrend(series.k.slice(-KK), windowed.slice(-KK).map(s=>s.ts))
 
-    // Simple, actionable summaries (short)
+    // Moisture
     if (mt.trend.includes('Falling') || sMoist === 'low')
-      list.push(`Moisture falling — add a little water.`)
+      list.push({ text: 'Moisture is declining. Add small amounts of water and mix to even the moisture.', level: 'notice' })
     else if (mt.trend.includes('Rising') || sMoist === 'high')
-      list.push(`Moisture rising — add dry bedding and aerate.`)
+      list.push({ text: 'Moisture is high. Reduce watering and add dry bedding to restore balance.', level: 'notice' })
 
+    // Temperature
     if (tt.trend.includes('Rising') || sTemp === 'high')
-      list.push(`Temperature rising — reduce fresh food or increase ventilation.`)
+      list.push({ text: 'Temperature rising. Turn the pile or increase ventilation to reduce heat.', level: 'notice' })
     else if (tt.trend.includes('Falling') || sTemp === 'low')
-      list.push(`Temperature falling — insulate or check moisture.`)
+      list.push({ text: 'Temperature falling. Check insulation and moisture; consider adding fresh food if activity is low.', level: 'notice' })
 
+    // NPK
     const npkOkay = [sN, sP, sK].every((s) => s === "ok")
     if (!npkOkay) {
-      const bad = [] as string[]
-      if (sN !== 'ok') bad.push(`N ${nT.trend.toLowerCase()} ${nT.pct.toFixed(0)}%`)
-      if (sP !== 'ok') bad.push(`P ${pT.trend.toLowerCase()} ${pT.pct.toFixed(0)}%`)
-      if (sK !== 'ok') bad.push(`K ${kT.trend.toLowerCase()} ${kT.pct.toFixed(0)}%`)
-      list.push(`NPK imbalance: ${bad.join(', ')} — adjust feed or bedding accordingly.`)
+      const bad: string[] = []
+      if (sN !== 'ok') bad.push(`N ${nT.trend.toLowerCase()}`)
+      if (sP !== 'ok') bad.push(`P ${pT.trend.toLowerCase()}`)
+      if (sK !== 'ok') bad.push(`K ${kT.trend.toLowerCase()}`)
+      list.push({ text: `NPK out of range: ${bad.join(', ')}. Inspect recent feed and bedding; correct gradually.`, level: 'urgent' })
     }
 
-    if (list.length === 0) list.push('All parameters look healthy. Maintain current routine.')
-    // Cross-sensor correlations (conservative messaging)
-    try {
-      const N = Math.min(96, series.temp.length, series.moist.length)
-      if (N >= 12) {
-        const sTemp = series.temp.slice(-N)
-        const sMoist = series.moist.slice(-N)
-        const rTM = pearsonCorrelation(sTemp, sMoist)
-          if (Number.isFinite(rTM) && Math.abs(rTM) >= 0.35) {
-            const dir = rTM > 0 ? 'positive' : 'negative'
-            list.push(`Temp ↔ Moisture: ${dir} correlation (r=${rTM}). Check logs to confirm.`)
-          }
+    // If nothing notable
+    if (list.length === 0) list.push({ text: 'All monitored parameters are within expected ranges. Continue regular checks.', level: 'ok' })
 
-        // moisture vs nutrients
+    // Conservative correlations: surface if moderate correlation found
+    try {
+      const R = Math.min(96, series.temp.length, series.moist.length)
+      if (R >= 12) {
+        const sTemp = series.temp.slice(-R)
+        const sMoist = series.moist.slice(-R)
+        const rTM = pearsonCorrelation(sTemp, sMoist)
+        if (Number.isFinite(rTM) && Math.abs(rTM) >= 0.45)
+          list.push({ text: `Temperature and moisture show ${rTM > 0 ? 'positive' : 'negative'} association. Check recent handling before changing routine.`, level: 'notice' })
+
         const nutrients = ['n','p','k'] as const
         for (const key of nutrients) {
-          const sNut = (series as any)[key].slice(-N)
+          const sNut = (series as any)[key].slice(-R)
           const r = pearsonCorrelation(sMoist, sNut)
-          if (Number.isFinite(r) && Math.abs(r) >= 0.35) {
-            const dir = r > 0 ? 'positive' : 'negative'
-            list.push(`Moisture ↔ ${key.toUpperCase()}: ${dir} correlation (r=${r}). Investigate if moisture affects nutrient readings.`)
+          if (Number.isFinite(r) && Math.abs(r) >= 0.45) {
+            list.push({ text: `Moisture and ${key.toUpperCase()} move together. Moisture management may affect this nutrient reading.`, level: 'notice' })
           }
         }
       }
     } catch (e) {
-      // fail safe: do not break insights
       console.warn('correlation calc failed', e)
     }
     return list
@@ -358,12 +366,11 @@ export default function Sensors() {
 
   function helpTextForInsight(text: string){
     const t = text.toLowerCase()
-    if (t.includes('moist') || t.includes('moisture')) return 'Moisture: percent water in the pile. If it keeps falling, add small amounts of water and mix; don’t soak it.'
-    if (t.includes('temperature') || t.includes('temp')) return 'Temperature: shows heat from decomposition. A steady rise can mean high activity; a big jump may need a turn or cooling.'
-    if (t.includes('npk') || t.includes('n ') || t.includes('p ') || t.includes('k ')) return 'N,P,K: nutrient readings in ppm. If one is out of range, review feed ingredients or dilution—check before large changes.'
-    if (t.includes('correlation') || t.includes('↔')) return 'Shows how two metrics move together (association). Not proof one causes the other.'
-    if (t.includes('anomaly') || t.includes('flag')) return 'Anomaly: a reading that differs a lot from recent values. Re-check sensor and recent actions before reacting.'
-    return 'Tip: compare with recent actions (watering, feeding, turning) to decide what to do.'
+    if (t.includes('moist') || t.includes('moisture')) return 'Moisture is the percent water content. Add small, incremental water and mix; avoid soaking.'
+    if (t.includes('temperature') || t.includes('temp')) return 'Temperature reflects decomposition activity. To cool, turn the pile or increase airflow.'
+    if (t.includes('npk') || t.includes('n ') || t.includes('p ') || t.includes('k ')) return 'NPK are ppm nutrient readings. If out of range, adjust feed or bedding gradually and retest.'
+    if (t.includes('correlation') || t.includes('association')) return 'A statistical association — review recent changes (watering, feed, turning) before acting.'
+    return 'Compare these tips with recent on-site actions (watering, turning, feeding) before making changes.'
   }
 
   const cardMotion = {
@@ -494,43 +501,125 @@ export default function Sensors() {
         />
       </div>
 
-      {/* Insights */}
-      <motion.section
-        {...cardMotion}
-        className="relative mt-5 p-5 md:p-6 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md overflow-hidden"
-      >
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
-        <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
-        <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+      {/* Summary + Insights (bottom) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+        {/* Summary Card (left on desktop) */}
+        <SummaryCard series={series} times={windowed.map(s=>s.ts)} kpi={kpi} range={range} />
 
-        <h3 className="text-base font-semibold mb-3 text-center sm:text-left">Actionable Tips</h3>
-        <ul className="space-y-2 text-sm leading-relaxed text-center sm:text-left">
-          <AnimatePresence>
-            {insights.map((t, i) => (
-              <motion.li
-                key={i}
-                initial={{ opacity: 0, x: -6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 6 }}
-                transition={{ duration: 0.25 }}
-                className="flex items-start justify-center sm:justify-start gap-2"
-              >
-                <span className="mt-[6px] inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span className="flex-1">{t}</span>
-                {/* help tip: brief 1-line explanation */}
-                <span className="ml-2">
-                  <HelpTip text={helpTextForInsight(t)} />
-                </span>
-              </motion.li>
-            ))}
-          </AnimatePresence>
-        </ul>
-      </motion.section>
+        {/* Actionable Tips (right on desktop) */}
+        <motion.section
+          {...cardMotion}
+          className="relative p-5 md:p-6 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md overflow-hidden"
+        >
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+          <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+          <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
+          <div className="flex items-start justify-between mb-3">
+            <h3 className="text-base font-semibold">Actionable Tips</h3>
+          </div>
+
+          <ul className="space-y-2 text-sm leading-relaxed">
+            <AnimatePresence>
+              {insights.map((it, i) => (
+                <motion.li
+                  key={i}
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 6 }}
+                  transition={{ duration: 0.25 }}
+                  className="flex items-start justify-between gap-3"
+                >
+                  <div className="flex items-start gap-3 flex-1">
+                    <span className={`mt-[6px] inline-block w-2 h-2 rounded-full ${it.level === 'urgent' ? 'bg-red-500' : it.level === 'notice' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                    <div className="text-sm leading-snug">{it.text}</div>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${it.level === 'urgent' ? 'bg-red-100 text-red-700' : it.level === 'notice' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{it.level === 'urgent' ? 'Urgent' : it.level === 'notice' ? 'Notice' : 'OK'}</span>
+                  </div>
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </ul>
+        </motion.section>
+      </div>
     </motion.div>
   )
 }
 
 /* ------------------------------ Subcomponents ------------------------------ */
+function SummaryCard({ series, times, kpi, range }:{ series:{ temp:number[]; moist:number[]; n:number[]; p:number[]; k:number[] }, times?:number[]; kpi:any; range:RangeKey }){
+  // compute high-impact analytics using helpers from src/lib/trend.ts
+  const stable = stabilityScore({ temp: series.temp, moist: series.moist, n: series.n, p: series.p, k: series.k })
+  const tempROC = rateOfChangePerHour(series.temp, times)
+  const moistROC = rateOfChangePerHour(series.moist, times)
+  const moistDef = moistureDeficit(kpi.moist.avg)
+  const moistEta = timeToTarget(series.moist, times, 65)
+  const health = sensorHealthMetrics(times)
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      whileHover={{ scale: 1.02, y: -4 }}
+      className="relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 overflow-hidden"
+    >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+      <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+      <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-base font-semibold">Summary</h3>
+        <div className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: '#f3f4f6', color: '#111827' }}>{range.toUpperCase()}</div>
+      </div>
+
+      <div className="flex items-center gap-3 mb-3">
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full" style={{ background: '#ecfdf5', color: '#065f46' }}>
+          <div className="text-sm font-bold">{stable}</div>
+        </div>
+        <div>
+          <div className="text-sm font-semibold">Stability</div>
+          <div className="text-xs opacity-70">Higher is better — lower variability</div>
+        </div>
+      </div>
+
+      <div className="space-y-3 text-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs opacity-70">Temp trend</div>
+            <div className="font-semibold tabular-nums">{tempROC.slopePerHour >= 0 ? '+' : ''}{tempROC.slopePerHour} °C/hr</div>
+          </div>
+          <div className="text-xs opacity-70 text-right">{computeTrend(series.temp, times).trend}</div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs opacity-70">Moisture trend</div>
+            <div className="font-semibold tabular-nums">{moistROC.slopePerHour >= 0 ? '+' : ''}{moistROC.slopePerHour} %/hr</div>
+            <div className="text-xs opacity-60">{moistDef.status === 'within' ? 'Within target band' : moistDef.status === 'dry' ? `Dry by ${moistDef.deficit}%` : `Wet by ${moistDef.deficit}%`}</div>
+          </div>
+          <div className="text-xs text-right">
+            {moistEta ? <div>ETA: <span className="tabular-nums">{Math.max(0,Math.round(moistEta.hours))}h</span></div> : <div className="opacity-70">No ETA</div>}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs opacity-70">Sensor health</div>
+            <div className="text-sm">{health.stale ? 'Stale readings' : 'Online'}</div>
+          </div>
+          <div className="text-xs text-right opacity-70">
+            {health.medianIntervalMin ? `${health.medianIntervalMin} min median` : '—'}
+          </div>
+        </div>
+
+        <div className="text-xs opacity-70">Quick tips: {moistDef.status === 'dry' ? 'Consider watering soon.' : moistDef.status === 'wet' ? 'Hold watering; moisture high.' : 'Conditions within target range.'}</div>
+      </div>
+    </motion.section>
+  )
+}
+
 function KpiCard({
   title,
   unit,

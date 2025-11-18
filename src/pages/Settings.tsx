@@ -115,6 +115,14 @@ export default function Settings() {
     }
     setSaving("thresholds")
     localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(thresholds))
+    // Also persist thresholds to Firestore so backend processes can read them
+    try {
+      const cfgRef = doc(db, "alert_configs", "default")
+      // write thresholds + timestamp
+      setDoc(cfgRef, { thresholds, updated_at: serverTimestamp() }, { merge: true }).catch((e) => console.warn('failed to save thresholds to cloud', e))
+    } catch (e) {
+      console.warn('failed to queue threshold cloud write', e)
+    }
     setTimeout(() => {
       setSaving(null)
       setSavedPulse("t")

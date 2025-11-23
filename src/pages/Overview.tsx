@@ -283,7 +283,7 @@ export default function Overview() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg sm:text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Overview (24 Hours)
+                Overview
               </h1>
               <motion.span className="live-badge px-2 py-0.5 rounded-full text-xs font-semibold border opacity-95 whitespace-nowrap">
                 {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
@@ -313,9 +313,11 @@ export default function Overview() {
         </div>
       </motion.section>
 
+      {/* Harvest Readiness card removed — placeholder deleted. */}
+
       {/* Weekly report (moved to bottom for layout/animation parity) */}
 
-      {/* Summaries + Alerts */}
+        {/* Summaries + Right column (Harvest + Alerts) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-4 text-gray-800 dark:text-gray-100">
         <section className="lg:col-span-8 space-y-3 md:space-y-4">
           <SummaryRow
@@ -348,68 +350,56 @@ export default function Overview() {
           />
         </section>
 
-        {/* Alerts & Tips */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          whileHover={{ scale: 1.02, y: -4 }}
-          className="lg:col-span-4 relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-5 overflow-hidden text-gray-800 dark:text-gray-100"
-        >
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
-          <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
-          <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+        {/* Right column: Harvest card (glassy) + Active Alerts (separate card) */}
+        <div className="lg:col-span-4 flex flex-col gap-3">
+          {/* Harvest card removed per request */}
 
-          <h3 className="text-base sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">
-            Active alerts
-          </h3>
-          <div className="mt-2 sm:mt-3 space-y-2">
-            {alerts.length === 0 && (
-              <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">
-                No active alerts. All parameters are within range.
-              </div>
-            )}
-            <AnimatePresence>
-              {alerts.map(a => (
-                <motion.div
-                  key={a.id}
-                  className="rounded-lg border px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm flex items-center gap-2 alert-row"
-                  style={{ borderColor: statusColor[a.level]+"55", background: statusColor[a.level]+"10", color: statusColor[a.level] }}
-                  variants={alertVariant}
-                  initial="hidden"
-                  animate="show"
-                  exit="exit"
-                >
-                  <span className={"w-2 h-2 rounded-full flex-shrink-0 "+statusDotClass[a.level]} />
-                  <span className="font-medium">{a.msg}</span>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.36 }}
+            className="flex-1 relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-4 sm:p-5 overflow-hidden text-gray-800 dark:text-gray-100"
+          >
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+            <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
 
-          <div className="mt-4 sm:mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-3 sm:pt-4">
-            <h4 className="text-sm sm:text-sm font-semibold text-gray-900 dark:text-gray-100">Vermicomposting tip</h4>
-            <div className="mt-1 tip-wrap">
-              <AnimatePresence mode="wait">
-                <motion.p
-                  key={tipIdx}
-                  className="text-sm sm:text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text"
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                >
-                  {tips[tipIdx]}
-                </motion.p>
+            <h3 className="text-base sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">Active alerts</h3>
+            <div className="mt-3 space-y-2">
+              {alerts.length === 0 && (
+                <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">No active alerts. All parameters are within range.</div>
+              )}
+              <AnimatePresence>
+                {alerts.map(a => (
+                  <motion.div
+                    key={a.id}
+                    className="rounded-lg border px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm flex items-center gap-2 alert-row"
+                    style={{ borderColor: statusColor[a.level]+"55", background: statusColor[a.level]+"10", color: statusColor[a.level] }}
+                    variants={alertVariant}
+                    initial="hidden"
+                    animate="show"
+                    exit="exit"
+                  >
+                    <span className={"w-2 h-2 rounded-full flex-shrink-0 "+statusDotClass[a.level]} />
+                    <span className="font-medium">{a.msg}</span>
+                  </motion.div>
+                ))}
               </AnimatePresence>
             </div>
-            <div className="mt-2 text-xs sm:text-xs flex flex-wrap gap-3 sm:gap-4 opacity-80 text-gray-600 dark:text-gray-400">
-              <Link to="/about" className="hover:underline">Learn more</Link>
-              <a href="https://www.youtube.com/watch?v=EshdEtWWw3A" target="_blank" rel="noreferrer" 
-                className="relative text-red-500 after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-0 after:bg-red-500 after:transition-all after:duration-300 hover:after:w-full"
-                >Quick video guide</a>
+
+            <div className="mt-4 sm:mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-3 sm:pt-4">
+              <h4 className="text-sm sm:text-sm font-semibold text-gray-900 dark:text-gray-100">Vermicomposting tip</h4>
+              <div className="mt-1 tip-wrap">
+                <AnimatePresence mode="wait">
+                  <motion.p key={tipIdx} className="text-sm sm:text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>{tips[tipIdx]}</motion.p>
+                </AnimatePresence>
+              </div>
+              <div className="mt-2 text-xs sm:text-xs flex flex-wrap gap-3 sm:gap-4 opacity-80 text-gray-600 dark:text-gray-400">
+                <Link to="/about" className="hover:underline">Learn more</Link>
+                <a href="https://www.youtube.com/watch?v=EshdEtWWw3A" target="_blank" rel="noreferrer" className="relative text-red-500 after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-0 after:bg-red-500 after:transition-all after:duration-300 hover:after:w-full">Quick video guide</a>
+              </div>
             </div>
-          </div>
-        </motion.section>
+          </motion.section>
+        </div>
       </div>
 
       {/* Weekly report */}
@@ -948,7 +938,7 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
       whileHover={{ scale: 1.02, y: -4 }}
-      className="relative mt-5 p-5 md:p-6 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md overflow-hidden"
+      className="relative mt-5 p-5 md:p-6 rounded-2xl border border-[hsl(var(--border))] bg-white/5 dark:bg-gray-900/40 backdrop-blur-md overflow-hidden"
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
       <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
@@ -970,7 +960,7 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
       </div>
 
       {helpOpen && (
-        <div className="mt-3 p-3 rounded border bg-gray-50 dark:bg-gray-900 text-sm">
+        <div className="mt-3 p-3 rounded border border-[hsl(var(--border))] bg-white/3 dark:bg-gray-900/40 text-sm">
           <div className="font-semibold">Legend / Criteria</div>
           <div className="text-xs opacity-80 mt-1">Stability: coefficient of variation (σ / mean) averaged across metrics. ‹0.05 Excellent, &lt;0.12 Good, &lt;0.25 Fair, ≥0.25 Unstable.</div>
           <div className="text-xs opacity-80 mt-1">σ: standard deviation for the period. Anomalies: points detected with |z| ≥ 2 (z-score).</div>
@@ -978,7 +968,7 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
       )}
 
       <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="rounded-lg border p-3 bg-white/60 dark:bg-gray-900/40 flex flex-col">
+        <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40 flex flex-col">
           <div className="flex items-center justify-between">
             <div className="text-xs opacity-70">Temperature (°C)</div>
             <div className="text-xs opacity-60">σ: {tSd}</div>
@@ -993,7 +983,7 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
             </div>
           </div>
         </div>
-        <div className="rounded-lg border p-3 bg-white/60 dark:bg-gray-900/40 flex flex-col">
+        <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40 flex flex-col">
           <div className="flex items-center justify-between">
             <div className="text-xs opacity-70">Moisture (%)</div>
             <div className="text-xs opacity-60">σ: {mSd}</div>
@@ -1008,7 +998,7 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
             </div>
           </div>
         </div>
-        <div className="rounded-lg border p-3 bg-white/60 dark:bg-gray-900/40 flex flex-col">
+        <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40 flex flex-col">
           <div className="flex items-center justify-between">
             <div className="text-xs opacity-70">NPK (ppm)</div>
             <div className="text-xs opacity-60">Anomalies: N {nAn} • P {pAn} • K {kAn}</div>

@@ -1,4 +1,5 @@
 import React from "react"
+import { motion } from "framer-motion"
 // Firestore integration for alert email persistence + history logging
 import {
   doc,
@@ -73,6 +74,25 @@ export default function Settings() {
   const [banner, setBanner] = React.useState<{ kind: "ok" | "err"; msg: string } | null>(null)
   const [savedPulse, setSavedPulse] = React.useState<"t" | "e" | null>(null)
   const [loadingEmail, setLoadingEmail] = React.useState<boolean>(true)
+
+  // Simple client-side gate: always start locked on page load
+  const [unlocked, setUnlocked] = React.useState<boolean>(false)
+  const [pw, setPw] = React.useState<string>("")
+  const [pwError, setPwError] = React.useState<string | null>(null)
+
+  const tryUnlock = () => {
+    if (pw === "terratrak") {
+      setUnlocked(true)
+      setPw("")
+      setPwError(null)
+    } else {
+      setPwError("Incorrect password")
+    }
+  }
+
+  const lockSettings = () => {
+    setUnlocked(false)
+  }
 
   const setField = (group: keyof Thresholds, bound: "min" | "max", value: string) => {
     if (value === "" || /^-?\d+(\.\d+)?$/.test(value)) {
@@ -197,7 +217,9 @@ export default function Settings() {
   }, [])
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 animate-fade-in-up px-3 sm:px-0">
+    <div className="relative">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 animate-fade-in-up px-3 sm:px-0">
+      
       {banner && (
         <div className="xl:col-span-12 banner-enter rounded-xl px-4 py-2 border text-sm bg-white/80 dark:bg-[hsl(var(--card))]/85 backdrop-blur border-[hsl(var(--border))] dark:border-white/10">
           <span className={banner.kind === "ok" ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300"}>
@@ -368,6 +390,47 @@ export default function Settings() {
         </div>
       </section>
     </div>
+
+    {/* Lock overlay (glass card + backdrop blur) */}
+    {!unlocked && (
+      <div className="absolute inset-0 z-40 flex items-center justify-center px-4">
+        <div className="absolute inset-0 bg-black/24 backdrop-blur-sm" />
+        <motion.div
+          initial={{ opacity: 0, y: 10, scale: 0.99 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 6, scale: 0.995 }}
+          transition={{ duration: 0.28, ease: [0.2, 0.9, 0.28, 1] }}
+          className="relative z-50 w-full max-w-sm mx-auto p-6 rounded-xl border bg-white/70 dark:bg-gray-900/60 backdrop-blur-md border-[hsl(var(--border))] shadow-lg"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center ring-1 ring-emerald-100 dark:bg-emerald-700/10">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none"><path d="M12 11c1.657 0 3-1.343 3-3S13.657 5 12 5 9 6.343 9 8s1.343 3 3 3z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 20v-2a4 4 0 014-4h6a4 4 0 014 4v2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-base font-semibold">Settings locked</h3>
+              <div className="text-xs text-gray-600 dark:text-gray-300 mt-1 truncate">Enter the password to continue.</div>
+              <div className="mt-3">
+                <input
+                  type="password"
+                  value={pw}
+                  onChange={(e) => setPw(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') tryUnlock() }}
+                  placeholder="Password"
+                  className="input w-full"
+                  aria-label="Settings password"
+                />
+                {pwError && <div className="text-xs text-rose-600 mt-2">{pwError}</div>}
+                <div className="mt-3 flex gap-2">
+                  <button onClick={tryUnlock} className="px-4 py-2 rounded-lg bg-emerald-600 text-white flex-1">Unlock</button>
+                  <button onClick={() => { setPw(""); setPwError(null) }} className="px-4 py-2 rounded-lg border flex-1">Clear</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    )}
+  </div>
   )
 }
 

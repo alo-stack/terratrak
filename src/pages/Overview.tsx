@@ -932,116 +932,149 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
     }
   }
 
+  // helper: counts below/above for plain sentences
+  const countBelow = (arr:number[], v:number) => arr.filter(x=>x < v).length
+  const countAbove = (arr:number[], v:number) => arr.filter(x=>x > v).length
+
+  const interpretParam = (avg:number, arr:number[], lo:number, hi:number) => {
+    const below = countBelow(arr, lo)
+    const above = countAbove(arr, hi)
+    if (below === 0 && above === 0) return { status: 'Good', reason: 'Stayed within ideal range' }
+    if (below > above && below > 0) return { status: 'Low', reason: `${below} time${below>1?'s':''} below ideal` }
+    if (above > below && above > 0) return { status: 'High', reason: `${above} time${above>1?'s':''} above ideal` }
+    return { status: 'Unstable', reason: `${below + above} time${below+above>1?'s':''} outside ideal` }
+  }
+
+  const tInfo = interpretParam(tAvg, tS, thresholds.temperature.min, thresholds.temperature.max)
+  const mInfo = interpretParam(mAvg, mS, thresholds.moisture.min, thresholds.moisture.max)
+  const nInfo = interpretParam(nAvg, nS, thresholds.npk.n.min, thresholds.npk.n.max)
+  const pInfo = interpretParam(pAvg, pS, thresholds.npk.p.min, thresholds.npk.p.max)
+  const kInfo = interpretParam(kAvg, kS, thresholds.npk.k.min, thresholds.npk.k.max)
+
+  const statusColorSimple = (s:string) => s === 'Good' ? '#10b981' : s === 'Low' ? '#f59e0b' : s === 'High' ? '#ef4444' : '#f97316'
+
+  const highLevel = (() => {
+    if (totalAlerts === 0) return 'All sensors stayed within ideal ranges this week.'
+    if (avgCv < 0.12) return `Small variations overall; ${totalAlerts} alert${totalAlerts>1?'s':''} recorded.`
+    return `Noticeable variation this week; ${totalAlerts} alert${totalAlerts>1?'s':''} recorded.`
+  })()
+
+  const plainInsights = corrRows.map(r => {
+    if (!Number.isFinite(r.r as number)) return null
+    const val = r.r as number
+    const abs = Math.abs(val)
+    if (val > 0.35) return `${r.a} and ${r.b} moved together this week — they may share causes like watering or feeding.`
+    if (val < -0.35) return `${r.a} rising tended to match ${r.b} falling — check ventilation, heating or shade.`
+    if (abs >= 0.2) return `${r.a} and ${r.b} showed a small relationship — monitor for patterns.`
+    return null
+  }).filter(Boolean) as string[]
+
+  const npkSummary = (n:number,p:number,k:number) => {
+    const parts:string[] = []
+    if (nInfo.status !== 'Good') parts.push(`N ${nInfo.status.toLowerCase()}`)
+    if (pInfo.status !== 'Good') parts.push(`P ${pInfo.status.toLowerCase()}`)
+    if (kInfo.status !== 'Good') parts.push(`K ${kInfo.status.toLowerCase()}`)
+    if (parts.length === 0) return 'N/P/K levels look balanced for this period.'
+    return `${parts.join(', ')} — consider adjusting fertiliser or mixing to correct levels.`
+  }
+
   return (
     <motion.section
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-      whileHover={{ scale: 1.02, y: -4 }}
-      className="relative mt-5 p-5 md:p-6 rounded-2xl border border-[hsl(var(--border))] bg-white/5 dark:bg-gray-900/40 backdrop-blur-md overflow-hidden"
+      transition={{ duration: 0.36 }}
+      className="flex-1 relative mt-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-3 sm:p-4 overflow-hidden text-gray-800 dark:text-gray-100"
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
       <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
-      <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
 
-      <div className="flex items-start justify-between gap-3 flex-col sm:flex-row">
-        <div className="min-w-0">
-          <h3 className="text-lg font-semibold">Weekly Report</h3>
-          <div className="text-sm opacity-70 mt-1">Week: {weekStart.toLocaleDateString()} — {weekEnd.toLocaleDateString()} ({coverageDays} day(s) of data)</div>
+      <div>
+        <div className="flex items-start justify-between gap-3 flex-col sm:flex-row">
+          <div className="min-w-0">
+            <h3 className="text-base sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">Weekly Report</h3>
+            <div className="text-sm opacity-75 mt-1">{weekStart.toLocaleDateString()} — {weekEnd.toLocaleDateString()} • {coverageDays} day{coverageDays>1?'s':''}</div>
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{highLevel}</p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="text-xs opacity-80">Overall variation</div>
+            <div className={`px-2 py-0.5 rounded-full text-xs font-semibold`} style={{ background: avgCv < 0.12 ? '#ecfdf5' : '#fff7ed', color: avgCv < 0.12 ? '#065f46' : '#92400e' }}>{avgCv < 0.12 ? 'Low' : avgCv < 0.25 ? 'Moderate' : 'High'}</div>
+            <button onClick={exportCsv} className="ml-2 px-3 py-1 rounded bg-indigo-600 text-white text-sm">Export CSV</button>
+          </div>
         </div>
-        <div className="flex gap-2 items-center">
-          <div className="text-xs opacity-80">Stability</div>
-          <div className={`px-2 py-0.5 rounded-full text-xs font-semibold`} style={{ background: avgCv < 0.12 ? '#ecfdf5' : '#fff7ed', color: avgCv < 0.12 ? '#065f46' : '#92400e', border: '1px solid rgba(0,0,0,0.04)' }}>{stability}</div>
-          <button onClick={exportCsv} className="ml-2 px-3 py-1 rounded bg-indigo-600 text-white text-sm">Export CSV</button>
-          <button aria-expanded={helpOpen} onClick={()=>setHelpOpen(s=>!s)} className="ml-2 p-2 rounded bg-gray-100 dark:bg-gray-800 text-sm inline-flex items-center" aria-label="Weekly report help">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
-          </button>
+
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold">Temperature</div>
+              <div className="text-xs opacity-70">Variation</div>
+            </div>
+            <div className="mt-2 flex items-center gap-3">
+              <div className="flex-1">
+                <div className="text-2xl font-bold tabular-nums">{formatValue(tAvg,'°C')}</div>
+                <div className="text-xs opacity-70 mt-1">{tInfo.reason}</div>
+                <div className="mt-2"><span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: statusColorSimple(tInfo.status), color:'#fff' }}>{tInfo.status}</span></div>
+              </div>
+              <div className="w-20 sm:w-28">
+                <AutoSparkline color="#10b981" data={tS.slice(-48)} times={times ? times.slice(-48) : undefined} unit="°C" />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold">Moisture</div>
+              <div className="text-xs opacity-70">Variation</div>
+            </div>
+            <div className="mt-2 flex items-center gap-3">
+              <div className="flex-1">
+                <div className="text-2xl font-bold tabular-nums">{formatValue(mAvg,'%')}</div>
+                <div className="text-xs opacity-70 mt-1">{mInfo.reason}</div>
+                <div className="mt-2"><span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: statusColorSimple(mInfo.status), color:'#fff' }}>{mInfo.status}</span></div>
+              </div>
+              <div className="w-20 sm:w-28">
+                <AutoSparkline color="#38bdf8" data={mS.slice(-48)} times={times ? times.slice(-48) : undefined} unit="%" />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold">N / P / K (ppm)</div>
+              <div className="text-xs opacity-70">Latest avg</div>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+              <div className="p-2 rounded border bg-white/5">
+                <div className="font-semibold tabular-nums">{Math.round(nAvg)}</div>
+                <div className="text-xs opacity-70">N — {nInfo.status.toLowerCase()}</div>
+              </div>
+              <div className="p-2 rounded border bg-white/5">
+                <div className="font-semibold tabular-nums">{Math.round(pAvg)}</div>
+                <div className="text-xs opacity-70">P — {pInfo.status.toLowerCase()}</div>
+              </div>
+              <div className="p-2 rounded border bg-white/5">
+                <div className="font-semibold tabular-nums">{Math.round(kAvg)}</div>
+                <div className="text-xs opacity-70">K — {kInfo.status.toLowerCase()}</div>
+              </div>
+            </div>
+            <div className="mt-3 text-sm opacity-70">Quick tip: {npkSummary(nAvg,pAvg,kAvg)}</div>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="font-semibold">Simple insights</div>
+          <div className="mt-2 text-sm space-y-2 text-gray-700 dark:text-gray-300">
+            {plainInsights.length === 0 && <div>No clear relationships detected this week.</div>}
+            {plainInsights.map((s, i) => <div key={i}>• {s}</div>)}
+          </div>
+        </div>
+
+        <div className="mt-4 text-sm">
+          <div className="font-semibold">Summary of alerts</div>
+          <div className="text-xs opacity-70 mt-1">{totalAlerts} alert{totalAlerts!==1?'s':''} recorded during this period.</div>
+          <div className="mt-2 text-xs">Recommendation: {avgCv < 0.12 ? 'Conditions are generally steady — continue current routine.' : 'Investigate sources of variability (moisture, feeding, ventilation).'} </div>
         </div>
       </div>
-
-      {helpOpen && (
-        <div className="mt-3 p-3 rounded border border-[hsl(var(--border))] bg-white/3 dark:bg-gray-900/40 text-sm">
-          <div className="font-semibold">Legend / Criteria</div>
-          <div className="text-xs opacity-80 mt-1">Stability: coefficient of variation (σ / mean) averaged across metrics. ‹0.05 Excellent, &lt;0.12 Good, &lt;0.25 Fair, ≥0.25 Unstable.</div>
-          <div className="text-xs opacity-80 mt-1">σ: standard deviation for the period. Anomalies: points detected with |z| ≥ 2 (z-score).</div>
-        </div>
-      )}
-
-      <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40 flex flex-col">
-          <div className="flex items-center justify-between">
-            <div className="text-xs opacity-70">Temperature (°C)</div>
-            <div className="text-xs opacity-60">σ: {tSd}</div>
-          </div>
-          <div className="flex items-center gap-3 mt-2">
-            <div className="flex-1">
-              <div className="text-2xl font-bold tabular-nums">{formatValue(tAvg,'°C')}</div>
-              <div className="text-xs opacity-60">Out-of-range: {tAlerts}</div>
-            </div>
-            <div className="w-28">
-              <AutoSparkline color="#10b981" data={tS.slice(-48)} times={times ? times.slice(-48) : undefined} unit="°C" />
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40 flex flex-col">
-          <div className="flex items-center justify-between">
-            <div className="text-xs opacity-70">Moisture (%)</div>
-            <div className="text-xs opacity-60">σ: {mSd}</div>
-          </div>
-          <div className="flex items-center gap-3 mt-2">
-            <div className="flex-1">
-              <div className="text-2xl font-bold tabular-nums">{formatValue(mAvg,'%')}</div>
-              <div className="text-xs opacity-60">Out-of-range: {mAlerts}</div>
-            </div>
-            <div className="w-28">
-              <AutoSparkline color="#38bdf8" data={mS.slice(-48)} times={times ? times.slice(-48) : undefined} unit="%" />
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40 flex flex-col">
-          <div className="flex items-center justify-between">
-            <div className="text-xs opacity-70">NPK (ppm)</div>
-            <div className="text-xs opacity-60">Anomalies: N {nAn} • P {pAn} • K {kAn}</div>
-          </div>
-          <div className="flex items-center gap-3 mt-2">
-            <div className="flex-1 grid grid-cols-3 gap-2">
-              <div className="text-center"><div className="font-semibold tabular-nums">{Math.round(nAvg)}</div><div className="text-xs opacity-70">N</div></div>
-              <div className="text-center"><div className="font-semibold tabular-nums">{Math.round(pAvg)}</div><div className="text-xs opacity-70">P</div></div>
-              <div className="text-center"><div className="font-semibold tabular-nums">{Math.round(kAvg)}</div><div className="text-xs opacity-70">K</div></div>
-            </div>
-            <div className="w-28">
-              <AutoSparklineMulti series={[{data:nS.slice(-48),color:'#22c55e'},{data:pS.slice(-48),color:'#06b6d4'},{data:kS.slice(-48),color:'#f59e0b'}]} times={times ? times.slice(-48) : undefined} unit="ppm" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-3 text-sm">
-        <div className="font-semibold">Summary of alerts</div>
-        <div className="text-xs opacity-70 mt-1">Total alert occurrences this period: {totalAlerts} (temperature/moisture/NPK out-of-range counts)</div>
-        <div className="mt-2 text-xs">Recommendations: {avgCv < 0.12 ? 'System is stable — continue current routine.' : 'Consider inspecting bin: high variability detected. Check moisture management, feeding rate, and aeration.'}</div>
-      </div>
-      {corrRows.length > 0 && (
-        <div className="mt-3 text-sm">
-          <div className="font-semibold">Cross-sensor correlations (week)</div>
-          <div className="mt-1 text-xs opacity-75 space-y-1">
-            {corrRows.map((r, i) => {
-              const abs = Math.abs(r.r as number)
-              const strength = abs < 0.3 ? 'weak' : abs < 0.5 ? 'moderate' : abs < 0.7 ? 'strong' : 'very strong'
-              const n = r.n ?? 0
-              const rStr = Number.isFinite(r.r as number) ? `${(r.r as number).toFixed(2)}` : 'n/a'
-              const help = `${r.a} and ${r.b}: based on ${n} readings. Association (r=${rStr}); not proof of cause. Use as an investigation lead.`
-              return (
-                <div key={i} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2"><div>{r.a} ↔ {r.b}</div><HelpTip text={help} /></div>
-                  <div className="text-xs opacity-80">{Number.isFinite(r.r as number) ? `${strength} (r=${rStr})` : 'n/a'}</div>
-                </div>
-              )
-            })}
-            <div className="text-xs opacity-70 mt-2">Note: correlations show association, not causation. Use these as investigation leads—verify with intervention logs.</div>
-          </div>
-        </div>
-      )}
     </motion.section>
   )
 }

@@ -1,10 +1,11 @@
 // Overview.tsx
 import React from "react"
 import { Link } from "react-router-dom"
-import { doc, onSnapshot } from "firebase/firestore"
+import { collection, doc, onSnapshot, orderBy, query, Timestamp, where, limit as qlimit } from "firebase/firestore"
 import { db } from "../lib/firebase"   // your firebase config
 import { motion, AnimatePresence } from "framer-motion"
 import { computeTrend, formatValue, movingAverage, stddev, detectAnomalies, pearsonCorrelation } from "../lib/trend"
+import { getDummyDataEnabled, onDummyDataChange } from "../lib/dummyData"
 import HelpTip from "../components/HelpTip"
 
 /* --------------------------- Types & helpers --------------------------- */
@@ -20,6 +21,7 @@ type Thresholds = {
 }
 
 const THRESHOLDS_KEY = "tt_thresholds"
+const DEVICE_ID = "esp32-001"
 
 type StatusKey = "ok" | "warn" | "alert"
 const statusColor: Record<StatusKey, string> = {
@@ -51,20 +53,19 @@ const sFor = (v:number, lo:number, hi:number): StatusKey => {
 /*            Live series hook – Firestore first, SIM as fallback        */
 /* --------------------------------------------------------------------- */
 
-function useLiveSeries() {
+function useLiveSeries(dummyEnabled: boolean) {
   const [temp, setTemp]   = React.useState<number[]>([])
   const [moist, setMoist] = React.useState<number[]>([])
   const [n, setN]         = React.useState<number[]>([])
   const [p, setP]         = React.useState<number[]>([])
   const [k, setK]         = React.useState<number[]>([])
   const [tsArr, setTsArr] = React.useState<number[]>([])
-  const [mode, setMode]   = React.useState<"firebase"|"sim">("sim")
+  const [mode, setMode]   = React.useState<"firebase"|"sim">(dummyEnabled ? "sim" : "firebase")
   const [lastUpdate, setLastUpdate] = React.useState<number|null>(null)
-  const [latestTempArray, setLatestTempArray] = React.useState<number[]>([])
-  const [latestMoistureArray, setLatestMoistureArray] = React.useState<number[]>([])
 
   // seed with simulated history so cards aren’t empty
   React.useEffect(() => {
+    if (!dummyEnabled) return
     if (temp.length) return
     const t:number[] = [], m:number[] = []
     const ns:number[] = [], ps:number[] = [], ks:number[] = []
@@ -84,12 +85,11 @@ function useLiveSeries() {
     const now = Date.now()
     for (let i=0;i<seriesWindow;i++) ts.push(now - (seriesWindow - i) * 9000)
     setTemp(t); setMoist(m); setN(ns); setP(ps); setK(ks); setTsArr(ts)
-  }, [])
+  }, [dummyEnabled, temp.length])
 
   // attach to Firestore `/sensor_readings/latest`; if it never yields valid data, keep SIM ticking
   React.useEffect(() => {
     let simTimer: number | undefined
-    let receivedLive = false
 
     const startSim = () => {
       if (simTimer) return
@@ -109,75 +109,226 @@ function useLiveSeries() {
       }, 9000) as unknown as number
     }
 
-    // start in SIM until proven LIVE
-    setMode("sim")
-    startSim()
+    if (dummyEnabled) {
+      setMode("sim")
+      startSim()
+      return () => {
+        if (simTimer) window.clearInterval(simTimer)
+      }
+    }
 
-    const ref = doc(db, "sensor_readings", "latest")
-    const unsub = onSnapshot(
+    setMode("firebase")
+    setTemp([])
+    setMoist([])
+    setN([])
+    setP([])
+    setK([])
+    setTsArr([])
+
+    const cutoffDate = new Date(Date.now() - 3 * 60 * 60 * 1000)
+    const ref = collection(db, "sensor_readings", DEVICE_ID, "readings")
+    const q = query(
       ref,
+      where("updatedAt", ">=", Timestamp.fromDate(cutoffDate)),
+      orderBy("updatedAt", "asc"),
+      qlimit(2000)
+    )
+
+    const unsub = onSnapshot(
+      q,
       (snap) => {
-        if (!snap.exists()) return
-        const d = snap.data() as any
+        const rows = snap.docs
+          .map((d) => {
+            const x = d.data() as any
+            return {
+              ts: x.updatedAt?.toMillis?.() ?? Date.now(),
+              temp: Number(x.tempC ?? x.temperature),
+              moist: Number(x.moisturePct ?? x.moisture),
+              n: Number(x.npk?.n),
+              p: Number(x.npk?.p),
+              k: Number(x.npk?.k),
+            }
+          })
+          .filter((r) => [r.temp, r.moist, r.n, r.p, r.k].every(Number.isFinite))
 
-        const tVal = Number(d?.tempC ?? d?.temperature)
-        const mVal = Number(d?.moisturePct ?? d?.moisture)
-        const nVal = Number(d?.npk?.n)
-        const pVal = Number(d?.npk?.p)
-        const kVal = Number(d?.npk?.k)
-
-        const valid = [tVal,mVal,nVal,pVal,kVal].every(v => Number.isFinite(v))
-        if (!valid) return
-
-        // Parse temperature array (if available)
-        if (d.tempArray && Array.isArray(d.tempArray)) {
-          const tempArr = d.tempArray
-            .map((v: any) => Number(v))
-            .filter((v: number) => Number.isFinite(v) && v > -127)
-          if (tempArr.length > 0) setLatestTempArray(tempArr)
-        }
-        
-        // Parse moisture array (if available)
-        if (d.moistureArray && Array.isArray(d.moistureArray)) {
-          const moistArr = d.moistureArray
-            .map((v: any) => Number(v))
-            .filter((v: number) => Number.isFinite(v) && v >= 0 && v <= 100)
-          if (moistArr.length > 0) setLatestMoistureArray(moistArr)
+        if (!rows.length) {
+          setTemp([])
+          setMoist([])
+          setN([])
+          setP([])
+          setK([])
+          setTsArr([])
+          return
         }
 
-        if (!receivedLive) {
-          receivedLive = true
-          setMode("firebase")
-          if (simTimer) { window.clearInterval(simTimer); simTimer = undefined }
-        }
-
-        const timestamp = snap.data()?.updatedAt?.toMillis() ||
-                         snap.data()?.timestamp?.toMillis() ||
-                         (snap.metadata.hasPendingWrites ? undefined : Date.now())
-        if (timestamp) setLastUpdate(timestamp)
-
-        setTemp(prev => append(prev, Number(tVal.toFixed(1))))
-        setMoist(prev => append(prev, Number(mVal.toFixed(1))))
-        setN(prev => append(prev, Math.round(nVal)))
-        setP(prev => append(prev, Math.round(pVal)))
-        setK(prev => append(prev, Math.round(kVal)))
-        if (timestamp) setTsArr(prev => append(prev, timestamp))
+        setTemp(rows.map((r) => r.temp))
+        setMoist(rows.map((r) => r.moist))
+        setN(rows.map((r) => r.n))
+        setP(rows.map((r) => r.p))
+        setK(rows.map((r) => r.k))
+        setTsArr(rows.map((r) => r.ts))
       },
-      () => { setMode("sim"); if (!simTimer) startSim() }
+      () => {
+        setMode("firebase")
+      }
     )
 
     return () => {
       unsub()
       if (simTimer) window.clearInterval(simTimer)
     }
-  }, [])
+  }, [dummyEnabled])
 
-  return { temp, moist, n, p, k, ts: tsArr, mode, lastUpdate, latestTempArray, latestMoistureArray }
+  React.useEffect(() => {
+    if (dummyEnabled) return
+    const ref = doc(db, "sensor_readings", "latest")
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) return
+        const timestamp = snap.data()?.updatedAt?.toMillis() ||
+                         snap.data()?.timestamp?.toMillis()
+        if (timestamp) setLastUpdate(timestamp)
+      },
+      () => {}
+    )
+    return () => {
+      unsub()
+    }
+  }, [dummyEnabled])
+
+  return { temp, moist, n, p, k, ts: tsArr, mode, lastUpdate }
+}
+
+/* --------------------------------------------------------------------- */
+/*               Weekly series hook – 7-day Firestore feed               */
+/* --------------------------------------------------------------------- */
+
+function useWeeklySeries(dummyEnabled: boolean, deviceId = DEVICE_ID) {
+  const [temp, setTemp] = React.useState<number[]>([])
+  const [moist, setMoist] = React.useState<number[]>([])
+  const [n, setN] = React.useState<number[]>([])
+  const [p, setP] = React.useState<number[]>([])
+  const [k, setK] = React.useState<number[]>([])
+  const [tsArr, setTsArr] = React.useState<number[]>([])
+
+  React.useEffect(() => {
+    let simTimer: number | undefined
+
+    if (dummyEnabled) {
+      const totalPoints = seriesWindow * 7
+      const stepMs = 15 * 60 * 1000
+      const now = Date.now()
+      let tv = 48, mv = 62, nv = 120, pv = 55, kv = 130
+      const t: number[] = []
+      const m: number[] = []
+      const ns: number[] = []
+      const ps: number[] = []
+      const ks: number[] = []
+      const ts: number[] = []
+      for (let i = totalPoints; i > 0; i--) {
+        tv = clamp(tv + (Math.random() - 0.5) * 1.1, 25, 70)
+        mv = clamp(mv + (Math.random() - 0.5) * 1.3, 30, 90)
+        nv = clamp(nv + (Math.random() - 0.5) * 6, 30, 260)
+        pv = clamp(pv + (Math.random() - 0.5) * 4, 10, 150)
+        kv = clamp(kv + (Math.random() - 0.5) * 6, 30, 260)
+        t.push(Number(tv.toFixed(1)))
+        m.push(Number(mv.toFixed(1)))
+        ns.push(Math.round(nv))
+        ps.push(Math.round(pv))
+        ks.push(Math.round(kv))
+        ts.push(now - i * stepMs)
+      }
+      setTemp(t)
+      setMoist(m)
+      setN(ns)
+      setP(ps)
+      setK(ks)
+      setTsArr(ts)
+
+      return () => {
+        if (simTimer) window.clearInterval(simTimer)
+      }
+    }
+
+    setTemp([])
+    setMoist([])
+    setN([])
+    setP([])
+    setK([])
+    setTsArr([])
+
+    const cutoffDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    const ref = collection(db, "sensor_readings", deviceId, "readings")
+    const q = query(
+      ref,
+      where("updatedAt", ">=", Timestamp.fromDate(cutoffDate)),
+      orderBy("updatedAt", "asc"),
+      qlimit(5000)
+    )
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const rows = snap.docs
+          .map((d) => {
+            const x = d.data() as any
+            return {
+              ts: x.updatedAt?.toMillis?.() ?? Date.now(),
+              temp: Number(x.tempC ?? x.temperature),
+              moist: Number(x.moisturePct ?? x.moisture),
+              n: Number(x.npk?.n),
+              p: Number(x.npk?.p),
+              k: Number(x.npk?.k),
+            }
+          })
+          .filter((r) => [r.temp, r.moist, r.n, r.p, r.k].every(Number.isFinite))
+
+        if (!rows.length) {
+          setTemp([])
+          setMoist([])
+          setN([])
+          setP([])
+          setK([])
+          setTsArr([])
+          return
+        }
+
+        setTemp(rows.map((r) => r.temp))
+        setMoist(rows.map((r) => r.moist))
+        setN(rows.map((r) => r.n))
+        setP(rows.map((r) => r.p))
+        setK(rows.map((r) => r.k))
+        setTsArr(rows.map((r) => r.ts))
+      },
+      () => {
+        setTemp([])
+        setMoist([])
+        setN([])
+        setP([])
+        setK([])
+        setTsArr([])
+      }
+    )
+
+    return () => {
+      unsub()
+      if (simTimer) window.clearInterval(simTimer)
+    }
+  }, [dummyEnabled, deviceId])
+
+  return { temp, moist, n, p, k, ts: tsArr }
 }
 
 /* ------------------------------ Component ------------------------------ */
 
 export default function Overview() {
+  const [dummyEnabled, setDummyEnabled] = React.useState(getDummyDataEnabled())
+
+  React.useEffect(() => onDummyDataChange(() => setDummyEnabled(getDummyDataEnabled())), [])
+
+  const weekly = useWeeklySeries(dummyEnabled)
+
   const thresholds: Thresholds = React.useMemo(() => {
     try {
       const raw = localStorage.getItem(THRESHOLDS_KEY)
@@ -201,39 +352,56 @@ export default function Overview() {
     }
   }, [])
 
-  const { temp, moist, n, p, k, ts, mode, lastUpdate, latestTempArray, latestMoistureArray } = useLiveSeries()
+  const { temp, moist, n, p, k, ts, mode, lastUpdate } = useLiveSeries(dummyEnabled)
 
-  // For live data, use sensor arrays for min/max (matching Sensors.tsx Live mode logic)
-  const tempMin = latestTempArray.length > 0 ? Math.min(...latestTempArray) : (temp.length > 0 ? temp[temp.length - 1] : 0)
-  const tempMax = latestTempArray.length > 0 ? Math.max(...latestTempArray) : (temp.length > 0 ? temp[temp.length - 1] : 0)
-  const moistMin = latestMoistureArray.length > 0 ? Math.min(...latestMoistureArray) : (moist.length > 0 ? moist[moist.length - 1] : 0)
-  const moistMax = latestMoistureArray.length > 0 ? Math.max(...latestMoistureArray) : (moist.length > 0 ? moist[moist.length - 1] : 0)
+  const THREE_HOURS_MS = 3 * 60 * 60 * 1000
+  const cutoff3h = Date.now() - THREE_HOURS_MS
+  const filterByTime = (arr: number[], times: number[]) => {
+    if (!times.length) return arr
+    const out: number[] = []
+    for (let i = 0; i < arr.length && i < times.length; i++) {
+      if (times[i] >= cutoff3h) out.push(arr[i])
+    }
+    return out
+  }
+  const temp3h = filterByTime(temp, ts)
+  const moist3h = filterByTime(moist, ts)
+  const n3h = filterByTime(n, ts)
+  const p3h = filterByTime(p, ts)
+  const k3h = filterByTime(k, ts)
+  const ts3h = filterByTime(ts, ts)
+  const hasOverviewData = temp3h.length > 0 || moist3h.length > 0 || n3h.length > 0 || p3h.length > 0 || k3h.length > 0
+
+  const safeMin = (arr: number[]) => (arr.length ? Math.min(...arr) : null)
+  const safeMax = (arr: number[]) => (arr.length ? Math.max(...arr) : null)
 
   const summary = {
-    temp:  { avg: temp.length > 0 ? temp[temp.length - 1] : 0, min: tempMin, max: tempMax },
-    moist: { avg: moist.length > 0 ? moist[moist.length - 1] : 0, min: moistMin, max: moistMax },
+    temp:  { avg: temp3h.length > 0 ? temp3h[temp3h.length - 1] : null, min: safeMin(temp3h), max: safeMax(temp3h) },
+    moist: { avg: moist3h.length > 0 ? moist3h[moist3h.length - 1] : null, min: safeMin(moist3h), max: safeMax(moist3h) },
     npk: {
-      n: { avg: n.length > 0 ? n[n.length - 1] : 0 },
-      p: { avg: p.length > 0 ? p[p.length - 1] : 0 },
-      k: { avg: k.length > 0 ? k[k.length - 1] : 0 },
+      n: { avg: n3h.length > 0 ? n3h[n3h.length - 1] : null },
+      p: { avg: p3h.length > 0 ? p3h[p3h.length - 1] : null },
+      k: { avg: k3h.length > 0 ? k3h[k3h.length - 1] : null },
     },
   }
 
-  const sTemp  = sFor(summary.temp.avg,  thresholds.temperature.min, thresholds.temperature.max)
-  const sMoist = sFor(summary.moist.avg, thresholds.moisture.min,     thresholds.moisture.max)
-  const sN     = sFor(summary.npk.n.avg, thresholds.npk.n.min,        thresholds.npk.n.max)
-  const sP     = sFor(summary.npk.p.avg, thresholds.npk.p.min,        thresholds.npk.p.max)
-  const sK     = sFor(summary.npk.k.avg, thresholds.npk.k.min,        thresholds.npk.k.max)
+  const sTemp  = summary.temp.avg === null ? "ok" : sFor(summary.temp.avg,  thresholds.temperature.min, thresholds.temperature.max)
+  const sMoist = summary.moist.avg === null ? "ok" : sFor(summary.moist.avg, thresholds.moisture.min,     thresholds.moisture.max)
+  const sN     = summary.npk.n.avg === null ? "ok" : sFor(summary.npk.n.avg, thresholds.npk.n.min,        thresholds.npk.n.max)
+  const sP     = summary.npk.p.avg === null ? "ok" : sFor(summary.npk.p.avg, thresholds.npk.p.min,        thresholds.npk.p.max)
+  const sK     = summary.npk.k.avg === null ? "ok" : sFor(summary.npk.k.avg, thresholds.npk.k.min,        thresholds.npk.k.max)
 
   const npkWorst: StatusKey = (["alert","warn","ok"] as StatusKey[]).find(k => [sN,sP,sK].includes(k)) || "ok"
   const healthRank: StatusKey = (["alert","warn","ok"] as StatusKey[]).find(k => [sTemp, sMoist, npkWorst].includes(k)) || "ok"
 
   const alerts: Array<{ id:string; level:StatusKey; msg:string }> = []
-  if (sTemp  !== "ok") alerts.push({ id:"t", level:sTemp,  msg: sTemp==="warn" ? "Temperature nearing threshold" : "Temperature out of range" })
-  if (sMoist !== "ok") alerts.push({ id:"m", level:sMoist, msg: sMoist==="warn" ? "Moisture nearing threshold" : "Moisture out of range" })
-  if (sN     !== "ok") alerts.push({ id:"n", level:sN, msg: sN==="warn" ? "Nitrogen nearing threshold" : "Nitrogen out of range" })
-  if (sP     !== "ok") alerts.push({ id:"p", level:sP, msg: sP==="warn" ? "Phosphorus nearing threshold" : "Phosphorus out of range" })
-  if (sK     !== "ok") alerts.push({ id:"k", level:sK, msg: sK==="warn" ? "Potassium nearing threshold" : "Potassium out of range" })
+  if (hasOverviewData) {
+    if (sTemp  !== "ok") alerts.push({ id:"t", level:sTemp,  msg: sTemp==="warn" ? "Temperature nearing threshold" : "Temperature out of range" })
+    if (sMoist !== "ok") alerts.push({ id:"m", level:sMoist, msg: sMoist==="warn" ? "Moisture nearing threshold" : "Moisture out of range" })
+    if (sN     !== "ok") alerts.push({ id:"n", level:sN, msg: sN==="warn" ? "Nitrogen nearing threshold" : "Nitrogen out of range" })
+    if (sP     !== "ok") alerts.push({ id:"p", level:sP, msg: sP==="warn" ? "Phosphorus nearing threshold" : "Phosphorus out of range" })
+    if (sK     !== "ok") alerts.push({ id:"k", level:sK, msg: sK==="warn" ? "Potassium nearing threshold" : "Potassium out of range" })
+  }
 
   const tips = [
     "Opt for a moist, wrung-out sponge feel—too wet limits air flow.",
@@ -293,9 +461,13 @@ export default function Overview() {
               <p className="mt-1 text-sm sm:text-sm text-amber-700 dark:text-amber-300">
                 ESP32 not transmitting data, in simulation mode
               </p>
-            ) : lastUpdate && (
+            ) : lastUpdate ? (
               <p className="mt-1 text-sm sm:text-sm text-emerald-700 dark:text-emerald-300">
                 ESP32 transmitted data last {new Date(lastUpdate).toLocaleString()}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm sm:text-sm text-gray-500 dark:text-gray-300">
+                No Firebase data in the last 3 hours
               </p>
             )}
           </div>
@@ -327,8 +499,8 @@ export default function Overview() {
             status={sTemp}
             gradient="from-emerald-400/35 via-emerald-400/10 to-emerald-400/0"
             sparkColor="#10b981"
-            series={temp}
-            times={ts}
+            series={temp3h}
+            times={ts3h}
           />
           <SummaryRow
             title="Moisture"
@@ -337,16 +509,16 @@ export default function Overview() {
             status={sMoist}
             gradient="from-sky-400/35 via-sky-400/10 to-sky-400/0"
             sparkColor="#38bdf8"
-            series={moist}
-            times={ts}
+            series={moist3h}
+            times={ts3h}
           />
           <NPKRow
             data={summary.npk}
             status={npkWorst}
             statuses={{ n:sN, p:sP, k:sK }}
             thresholds={thresholds.npk}
-            series={{ n, p, k }}
-            times={ts}
+            series={{ n: n3h, p: p3h, k: k3h }}
+            times={ts3h}
           />
         </section>
 
@@ -393,6 +565,27 @@ export default function Overview() {
                   <motion.p key={tipIdx} className="text-sm sm:text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>{tips[tipIdx]}</motion.p>
                 </AnimatePresence>
               </div>
+              <div className="mt-4 rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-white/60 dark:bg-gray-900/40 p-3">
+                <h5 className="text-xs sm:text-xs font-semibold text-gray-900 dark:text-gray-100">Bedding prep - quick steps</h5>
+                <ol className="mt-2 text-xs sm:text-xs text-gray-700 dark:text-gray-200 space-y-1">
+                  <li><strong>1) Build the base:</strong> Shred cardboard or newspaper into strips. Fill the bin about 2/3 with dry bedding.</li>
+                  <li><strong>2) Moisten:</strong> Add water and mix until it feels like a wrung-out sponge. No dripping water.</li>
+                  <li><strong>3) Add structure:</strong> Mix in a handful of dry leaves or coconut coir to keep air pockets.</li>
+                  <li><strong>4) Add grit:</strong> Sprinkle a small amount of crushed eggshells or garden lime for worm digestion.</li>
+                  <li><strong>5) Add a starter feed:</strong> Bury a small handful of food scraps in one corner. Cover with bedding.</li>
+                  <li><strong>6) Rest and check:</strong> Wait 24 hours, then add worms. If it smells sour or feels wet, add more dry bedding.</li>
+                </ol>
+              </div>
+              <div className="mt-3 rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-white/60 dark:bg-gray-900/40 p-3">
+                <h5 className="text-xs sm:text-xs font-semibold text-gray-900 dark:text-gray-100">Food and bedding guide</h5>
+                <div className="mt-2 text-xs sm:text-xs text-gray-700 dark:text-gray-200 space-y-1">
+                  <div><strong>Feed weekly:</strong> Add a small amount, then wait until most of it is gone before adding more.</div>
+                  <div><strong>Good foods:</strong> Fruit and veg scraps, coffee grounds, tea bags (no plastic), crushed eggshells.</div>
+                  <div><strong>Balance with browns:</strong> Shredded cardboard, paper, dry leaves, or coir keep the bin airy.</div>
+                  <div><strong>Avoid or limit:</strong> Meat, dairy, oily foods, salty/spicy foods, and lots of citrus or onion.</div>
+                  <div><strong>Simple ratio:</strong> About 2 to 3 parts bedding (browns) to 1 part food (greens).</div>
+                </div>
+              </div>
               <div className="mt-2 text-xs sm:text-xs flex flex-wrap gap-3 sm:gap-4 opacity-80 text-gray-600 dark:text-gray-400">
                 <Link to="/about" className="hover:underline">Learn more</Link>
                 <a href="https://www.youtube.com/watch?v=EshdEtWWw3A" target="_blank" rel="noreferrer" className="relative text-red-500 after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-0 after:bg-red-500 after:transition-all after:duration-300 hover:after:w-full">Quick video guide</a>
@@ -404,13 +597,14 @@ export default function Overview() {
 
       {/* Weekly report */}
       <WeeklyReportCard
-        tempSeries={temp}
-        moistSeries={moist}
-        nSeries={n}
-        pSeries={p}
-        kSeries={k}
+        tempSeries={weekly.temp}
+        moistSeries={weekly.moist}
+        nSeries={weekly.n}
+        pSeries={weekly.p}
+        kSeries={weekly.k}
         thresholds={thresholds}
-        times={ts}
+        times={weekly.ts}
+        source={dummyEnabled ? "dummy" : "firebase"}
       />
 
       {/* Styles unchanged except for dark-friendly colors */}
@@ -448,7 +642,7 @@ function SummaryRow({
 }:{
   title: string
   unit: string
-  data: { avg:number; min:number; max:number }
+  data: { avg:number | null; min:number | null; max:number | null }
   status: StatusKey
   gradient: string
   sparkColor: string
@@ -482,9 +676,9 @@ function SummaryRow({
               </span>
             </div>
             <div className="mt-2 grid grid-cols-3 gap-2 sm:gap-3 text-sm sm:text-sm">
-              <KV label="Avg" value={`${data.avg.toFixed(1)}${unit}`} />
-              <KV label="Min" value={`${data.min.toFixed(1)}${unit}`} />
-              <KV label="Max" value={`${data.max.toFixed(1)}${unit}`} />
+              <KV label="Avg" value={formatValue(Number.isFinite(data.avg) ? (data.avg as number) : NaN, unit)} />
+              <KV label="Min" value={formatValue(Number.isFinite(data.min) ? (data.min as number) : NaN, unit)} />
+              <KV label="Max" value={formatValue(Number.isFinite(data.max) ? (data.max as number) : NaN, unit)} />
             </div>
           </div>
           <div className="w-full">
@@ -493,9 +687,9 @@ function SummaryRow({
             {(() => {
               const s = series.slice(-48)
               const t = computeTrend(s, times ? times.slice(-48) : undefined)
-              const trend = t.trend
-              const pctStr = Number.isFinite(t.pct) ? `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%` : '--'
-              const interp = status === 'alert' ? 'Act now' : status === 'warn' ? 'Watch closely' : (t.trend === 'Rising' ? 'Increasing' : t.trend === 'Falling' ? 'Decreasing' : 'Stable')
+              const trend = s.length < 2 ? 'N/A' : t.trend
+              const pctStr = s.length < 2 || !Number.isFinite(t.pct) ? '--' : `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`
+              const interp = s.length < 2 ? 'No data' : (status === 'alert' ? 'Act now' : status === 'warn' ? 'Watch closely' : (t.trend === 'Rising' ? 'Increasing' : t.trend === 'Falling' ? 'Decreasing' : 'Stable'))
               return (
                 <div className="mt-3 flex items-center justify-between text-sm text-gray-700 dark:text-gray-300">
                   <div className="flex items-center gap-3">
@@ -534,7 +728,7 @@ function NPKRow({
   series,
   times
 }:{
-  data: { n:{avg:number}; p:{avg:number}; k:{avg:number} }
+  data: { n:{avg:number | null}; p:{avg:number | null}; k:{avg:number | null} }
   status: StatusKey
   statuses: { n:StatusKey; p:StatusKey; k:StatusKey }
   thresholds: { n:{min:number;max:number}; p:{min:number;max:number}; k:{min:number;max:number} }
@@ -601,12 +795,13 @@ function NPKRow({
               const pT = computeTrend(sP, times ? times.slice(-48) : undefined)
               const kT = computeTrend(sK, times ? times.slice(-48) : undefined)
               const arrow = (t:any) => t.trend && t.trend.toLowerCase().includes('rise') ? '↑' : t.trend && t.trend.toLowerCase().includes('fall') ? '↓' : '–'
+              const pct = (s:number[], t:any) => s.length < 2 || !Number.isFinite(t.pct) ? '--' : `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`
               return (
                 <div className="mt-3 flex items-center justify-between text-sm text-gray-700 dark:text-gray-300">
                   <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2"><span style={{color:COLOR_N}} className="w-2 h-2 rounded-full inline-block" />N: <span className="tabular-nums">{arrow(nT)} {nT.pct >= 0 ? '+' : ''}{nT.pct.toFixed(1)}%</span></div>
-                    <div className="flex items-center gap-2"><span style={{color:COLOR_P}} className="w-2 h-2 rounded-full inline-block" />P: <span className="tabular-nums">{arrow(pT)} {pT.pct >= 0 ? '+' : ''}{pT.pct.toFixed(1)}%</span></div>
-                    <div className="flex items-center gap-2"><span style={{color:COLOR_K}} className="w-2 h-2 rounded-full inline-block" />K: <span className="tabular-nums">{arrow(kT)} {kT.pct >= 0 ? '+' : ''}{kT.pct.toFixed(1)}%</span></div>
+                    <div className="flex items-center gap-2"><span style={{color:COLOR_N}} className="w-2 h-2 rounded-full inline-block" />N: <span className="tabular-nums">{arrow(nT)} {pct(sN, nT)}</span></div>
+                    <div className="flex items-center gap-2"><span style={{color:COLOR_P}} className="w-2 h-2 rounded-full inline-block" />P: <span className="tabular-nums">{arrow(pT)} {pct(sP, pT)}</span></div>
+                    <div className="flex items-center gap-2"><span style={{color:COLOR_K}} className="w-2 h-2 rounded-full inline-block" />K: <span className="tabular-nums">{arrow(kT)} {pct(sK, kT)}</span></div>
                   </div>
                   <div className="text-xs opacity-75">Interpretation: {status === 'ok' ? 'Balanced' : status === 'warn' ? 'Watch balance' : 'Imbalance detected'}</div>
                 </div>
@@ -625,7 +820,7 @@ function NPKChip({
   label, color, status, val, th
 }:{
   label:"N"|"P"|"K"; color:string; status: StatusKey;
-  val:number; th:{min:number;max:number}
+  val:number | null; th:{min:number;max:number}
 }) {
   return (
     <motion.div whileHover={{ translateY: -4 }} className="rounded-xl border border-[hsl(var(--border))] dark:border-white/10 p-2 sm:p-3">
@@ -641,7 +836,9 @@ function NPKChip({
       </div>
       <div className="mt-1.5 sm:mt-2 text-center">
         <div className="text-xs sm:text-xs opacity-70">Current</div>
-        <div className="text-xl sm:text-2xl font-bold tabular-nums" style={{ color }}>{val.toFixed(0)}</div>
+        <div className="text-xl sm:text-2xl font-bold tabular-nums" style={{ color }}>
+          {Number.isFinite(val) ? Math.round(val as number) : '--'}
+        </div>
         <div className="text-xs sm:text-xs opacity-60">ppm</div>
       </div>
       <div className="mt-1.5 sm:mt-2 text-xs sm:text-[11px] opacity-70 text-center">Range: {th.min}–{th.max} ppm</div>
@@ -832,7 +1029,7 @@ function AutoSparklineMulti({ series, times, unit }:{ series:{data:number[]; col
 }
 
 /* -------------------------- Weekly report -------------------------- */
-function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, thresholds, times }:{ tempSeries:number[]; moistSeries:number[]; nSeries:number[]; pSeries:number[]; kSeries:number[]; thresholds: Thresholds; times?: number[] }){
+function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, thresholds, times, source }:{ tempSeries:number[]; moistSeries:number[]; nSeries:number[]; pSeries:number[]; kSeries:number[]; thresholds: Thresholds; times?: number[]; source: "dummy" | "firebase" }){
   // Desired points for a week (based on seriesWindow baseline)
   const weekPoints = seriesWindow * 7
   const pick = (arr:number[]) => arr.slice(-Math.min(arr.length, weekPoints))
@@ -842,14 +1039,14 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
   const pS = pick(pSeries)
   const kS = pick(kSeries)
 
+  const hasData = tS.length > 0 || mS.length > 0 || nS.length > 0 || pS.length > 0 || kS.length > 0
+
   const coverageHours = Math.round((Math.max(tS.length, mS.length, nS.length) / seriesWindow) * 24)
   const coverageDays = Math.max(1, Math.round(coverageHours/24))
 
   const avg = (arr:number[]) => arr.length ? Number((arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)) : 0
   const tAvg = avg(tS), mAvg = avg(mS), nAvg = avg(nS), pAvg = avg(pS), kAvg = avg(kS)
   const tSd = stddev(tS), mSd = stddev(mS), nSd = stddev(nS), pSd = stddev(pS), kSd = stddev(kS)
-  const tAn = detectAnomalies(tS).length, mAn = detectAnomalies(mS).length
-  const nAn = detectAnomalies(nS).length, pAn = detectAnomalies(pS).length, kAn = detectAnomalies(kS).length
 
   // alerts summary: count how many points were outside thresholds in the picked window
   const countOutOfRange = (arr:number[], lo:number, hi:number) => arr.filter(v => v < lo || v > hi).length
@@ -864,30 +1061,9 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
   const cv = (sd:number, mean:number) => mean ? sd/Math.abs(mean) : 0
   const cvs = [cv(tSd,tAvg), cv(mSd,mAvg), cv(nSd,nAvg), cv(pSd,pAvg), cv(kSd,kAvg)].filter(v=>Number.isFinite(v))
   const avgCv = cvs.length ? (cvs.reduce((a,b)=>a+b,0)/cvs.length) : 0
-  const stability = avgCv < 0.05 ? 'Excellent' : avgCv < 0.12 ? 'Good' : avgCv < 0.25 ? 'Fair' : 'Unstable'
 
   const weekEnd = new Date();
   const weekStart = new Date(Date.now() - 7*24*60*60*1000)
-  const [helpOpen, setHelpOpen] = React.useState(false)
-
-  // Cross-sensor correlations for week (conservative interpretation)
-  const corrRows: { a:string; b:string; r:number | null; n?: number; note?:string }[] = []
-  try {
-    const MIN = 12
-    const nPts = Math.min(tS.length, mS.length, nS.length, pS.length, kS.length)
-    if (nPts >= MIN) {
-      const rTM = pearsonCorrelation(tS, mS)
-      if (Number.isFinite(rTM)) corrRows.push({ a:'Temperature', b:'Moisture', r: rTM, n: nPts })
-      const rMn = pearsonCorrelation(mS, nS)
-      if (Number.isFinite(rMn)) corrRows.push({ a:'Moisture', b:'N', r: rMn, n: nPts })
-      const rMp = pearsonCorrelation(mS, pS)
-      if (Number.isFinite(rMp)) corrRows.push({ a:'Moisture', b:'P', r: rMp, n: nPts })
-      const rMk = pearsonCorrelation(mS, kS)
-      if (Number.isFinite(rMk)) corrRows.push({ a:'Moisture', b:'K', r: rMk, n: nPts })
-    }
-  } catch (e) {
-    console.warn('weekly correlation failed', e)
-  }
 
   const exportCsv = () => {
     try {
@@ -939,10 +1115,10 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
   const interpretParam = (avg:number, arr:number[], lo:number, hi:number) => {
     const below = countBelow(arr, lo)
     const above = countAbove(arr, hi)
-    if (below === 0 && above === 0) return { status: 'Good', reason: 'Stayed within ideal range' }
-    if (below > above && below > 0) return { status: 'Low', reason: `${below} time${below>1?'s':''} below ideal` }
-    if (above > below && above > 0) return { status: 'High', reason: `${above} time${above>1?'s':''} above ideal` }
-    return { status: 'Unstable', reason: `${below + above} time${below+above>1?'s':''} outside ideal` }
+    if (below === 0 && above === 0) return { status: '✓ Perfect', icon: '✓', reason: 'Always in range', color: '#10b981' }
+    if (below > above && below > 0) return { status: '↓ Too Low', icon: '↓', reason: `${below} readings below`, color: '#06b6d4' }
+    if (above > below && above > 0) return { status: '↑ Too High', icon: '↑', reason: `${above} readings above`, color: '#ef4444' }
+    return { status: '⚠ Unstable', icon: '⚠', reason: `${below + above} out of range`, color: '#f59e0b' }
   }
 
   const tInfo = interpretParam(tAvg, tS, thresholds.temperature.min, thresholds.temperature.max)
@@ -951,31 +1127,58 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
   const pInfo = interpretParam(pAvg, pS, thresholds.npk.p.min, thresholds.npk.p.max)
   const kInfo = interpretParam(kAvg, kS, thresholds.npk.k.min, thresholds.npk.k.max)
 
-  const statusColorSimple = (s:string) => s === 'Good' ? '#10b981' : s === 'Low' ? '#f59e0b' : s === 'High' ? '#ef4444' : '#f97316'
-
-  const highLevel = (() => {
-    if (totalAlerts === 0) return 'All sensors stayed within ideal ranges this week.'
-    if (avgCv < 0.12) return `Small variations overall; ${totalAlerts} alert${totalAlerts>1?'s':''} recorded.`
-    return `Noticeable variation this week; ${totalAlerts} alert${totalAlerts>1?'s':''} recorded.`
+  // Overall health summary - simple and clear
+  const overallStatus = (() => {
+    if (totalAlerts === 0) return { icon: '🎉', text: 'Perfect Week!', subtext: 'All conditions ideal', color: '#10b981' }
+    if (totalAlerts <= 5) return { icon: '✓', text: 'Great', subtext: `${totalAlerts} minor issue${totalAlerts>1?'s':''}`, color: '#10b981' }
+    if (totalAlerts <= 15) return { icon: '⚠', text: 'Watch', subtext: `${totalAlerts} readings off`, color: '#f59e0b' }
+    return { icon: '⚠', text: 'Needs Attention', subtext: `${totalAlerts} issues detected`, color: '#ef4444' }
   })()
 
-  const plainInsights = corrRows.map(r => {
-    if (!Number.isFinite(r.r as number)) return null
-    const val = r.r as number
-    const abs = Math.abs(val)
-    if (val > 0.35) return `${r.a} and ${r.b} moved together this week — they may share causes like watering or feeding.`
-    if (val < -0.35) return `${r.a} rising tended to match ${r.b} falling — check ventilation, heating or shade.`
-    if (abs >= 0.2) return `${r.a} and ${r.b} showed a small relationship — monitor for patterns.`
-    return null
-  }).filter(Boolean) as string[]
+  // Action items - what user should do
+  const actionItems: string[] = []
+  if (tInfo.status.includes('Low')) actionItems.push('🌡️ Add warmth or insulation')
+  if (tInfo.status.includes('High')) actionItems.push('🌡️ Improve ventilation or shade')
+  if (mInfo.status.includes('Low')) actionItems.push('💧 Add water or moisture')
+  if (mInfo.status.includes('High')) actionItems.push('💧 Reduce watering, improve drainage')
+  if (nInfo.status.includes('Low')) actionItems.push('🌱 Add nitrogen-rich food scraps')
+  if (pInfo.status.includes('Low')) actionItems.push('🌿 Add phosphorus-rich materials')
+  if (kInfo.status.includes('Low')) actionItems.push('🍌 Add potassium-rich materials')
+  if (nInfo.status.includes('High') || pInfo.status.includes('High') || kInfo.status.includes('High')) 
+    actionItems.push('⚖️ Balance nutrients, avoid overfeeding')
+  
+  if (actionItems.length === 0) actionItems.push('✅ Keep doing what you\'re doing!')
 
-  const npkSummary = (n:number,p:number,k:number) => {
-    const parts:string[] = []
-    if (nInfo.status !== 'Good') parts.push(`N ${nInfo.status.toLowerCase()}`)
-    if (pInfo.status !== 'Good') parts.push(`P ${pInfo.status.toLowerCase()}`)
-    if (kInfo.status !== 'Good') parts.push(`K ${kInfo.status.toLowerCase()}`)
-    if (parts.length === 0) return 'N/P/K levels look balanced for this period.'
-    return `${parts.join(', ')} — consider adjusting fertiliser or mixing to correct levels.`
+  if (!hasData && source === "firebase") {
+    return (
+      <motion.section
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.36 }}
+        className="flex-1 relative mt-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md overflow-hidden text-gray-800 dark:text-gray-100"
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+        <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+
+        <div className="p-4 sm:p-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-gray-100">📊 7-Day Summary</h3>
+                <span className="text-xs px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-200">
+                  Source: Firebase
+                </span>
+              </div>
+              <div className="text-sm opacity-70 mt-2">No Firebase data found for the last 7 days.</div>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-white/60 dark:bg-gray-900/40 p-4 text-sm text-gray-700 dark:text-gray-300">
+            Turn on dummy data in Settings to preview the weekly report, or wait for live readings to accumulate.
+          </div>
+        </div>
+      </motion.section>
+    )
   }
 
   return (
@@ -983,96 +1186,146 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.36 }}
-      className="flex-1 relative mt-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-3 sm:p-4 overflow-hidden text-gray-800 dark:text-gray-100"
+      className="flex-1 relative mt-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md overflow-hidden text-gray-800 dark:text-gray-100"
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
       <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
 
-      <div>
-        <div className="flex items-start justify-between gap-3 flex-col sm:flex-row">
-          <div className="min-w-0">
-            <h3 className="text-base sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">Weekly Report</h3>
-            <div className="text-sm opacity-75 mt-1">{weekStart.toLocaleDateString()} — {weekEnd.toLocaleDateString()} • {coverageDays} day{coverageDays>1?'s':''}</div>
-            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{highLevel}</p>
+      <div className="p-4 sm:p-6">
+        {/* HEADER - Quick glance status */}
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-gray-100">📊 7-Day Summary</h3>
+              <span className="text-xs px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-200">
+                Source: {source === "dummy" ? "Dummy" : "Firebase"}
+              </span>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: overallStatus.color + '22', border: `2px solid ${overallStatus.color}` }}>
+                <span className="text-lg">{overallStatus.icon}</span>
+                <div className="flex flex-col">
+                  <span className="font-bold text-sm" style={{ color: overallStatus.color }}>{overallStatus.text}</span>
+                  <span className="text-xs opacity-70">{overallStatus.subtext}</span>
+                </div>
+              </div>
+            </div>
+            <div className="text-sm opacity-70 mt-2">{weekStart.toLocaleDateString()} — {weekEnd.toLocaleDateString()}</div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="text-xs opacity-80">Overall variation</div>
-            <div className={`px-2 py-0.5 rounded-full text-xs font-semibold`} style={{ background: avgCv < 0.12 ? '#ecfdf5' : '#fff7ed', color: avgCv < 0.12 ? '#065f46' : '#92400e' }}>{avgCv < 0.12 ? 'Low' : avgCv < 0.25 ? 'Moderate' : 'High'}</div>
-            <button onClick={exportCsv} className="ml-2 px-3 py-1 rounded bg-indigo-600 text-white text-sm">Export CSV</button>
+          <button 
+            onClick={exportCsv} 
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors shadow-sm"
+          >
+            💾 Export Data
+          </button>
+        </div>
+
+        {/* KEY METRICS - Visual cards that are easy to scan */}
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Temperature Card */}
+          <div className="rounded-xl border-2 p-4 bg-white/50 dark:bg-gray-900/50" style={{ borderColor: tInfo.color + '55' }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🌡️</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100">Temperature</span>
+              </div>
+              <span className="text-2xl">{tInfo.icon}</span>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-3xl font-bold tabular-nums">{tAvg.toFixed(1)}</span>
+              <span className="text-lg opacity-70">°C</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="px-2 py-1 rounded-md text-xs font-semibold" style={{ background: tInfo.color, color: '#fff' }}>
+                {tInfo.status}
+              </div>
+              <span className="text-xs opacity-70">{tInfo.reason}</span>
+            </div>
+          </div>
+
+          {/* Moisture Card */}
+          <div className="rounded-xl border-2 p-4 bg-white/50 dark:bg-gray-900/50" style={{ borderColor: mInfo.color + '55' }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">💧</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100">Moisture</span>
+              </div>
+              <span className="text-2xl">{mInfo.icon}</span>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-3xl font-bold tabular-nums">{mAvg.toFixed(1)}</span>
+              <span className="text-lg opacity-70">%</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="px-2 py-1 rounded-md text-xs font-semibold" style={{ background: mInfo.color, color: '#fff' }}>
+                {mInfo.status}
+              </div>
+              <span className="text-xs opacity-70">{mInfo.reason}</span>
+            </div>
+          </div>
+
+          {/* NPK Card */}
+          <div className="rounded-xl border-2 p-4 bg-white/50 dark:bg-gray-900/50 sm:col-span-2 lg:col-span-1" style={{ borderColor: '#8b5cf6' + '55' }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🌿</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100">Nutrients (NPK)</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="text-center">
+                <div className="text-xs opacity-70 mb-1">Nitrogen</div>
+                <div className="text-2xl font-bold tabular-nums">{Math.round(nAvg)}</div>
+                <div className="text-lg mt-1">{nInfo.icon}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs opacity-70 mb-1">Phosphorus</div>
+                <div className="text-2xl font-bold tabular-nums">{Math.round(pAvg)}</div>
+                <div className="text-lg mt-1">{pInfo.icon}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs opacity-70 mb-1">Potassium</div>
+                <div className="text-2xl font-bold tabular-nums">{Math.round(kAvg)}</div>
+                <div className="text-lg mt-1">{kInfo.icon}</div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40">
-            <div className="flex items-center justify-between">
-              <div className="font-semibold">Temperature</div>
-              <div className="text-xs opacity-70">Variation</div>
+        {/* WHAT TO DO - Action items */}
+        {actionItems.length > 0 && (
+          <div className="mt-6 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xl">💡</span>
+              <h4 className="font-semibold text-gray-900 dark:text-gray-100">What You Should Do</h4>
             </div>
-            <div className="mt-2 flex items-center gap-3">
-              <div className="flex-1">
-                <div className="text-2xl font-bold tabular-nums">{formatValue(tAvg,'°C')}</div>
-                <div className="text-xs opacity-70 mt-1">{tInfo.reason}</div>
-                <div className="mt-2"><span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: statusColorSimple(tInfo.status), color:'#fff' }}>{tInfo.status}</span></div>
-              </div>
-              <div className="w-20 sm:w-28">
-                <AutoSparkline color="#10b981" data={tS.slice(-48)} times={times ? times.slice(-48) : undefined} unit="°C" />
+            <div className="space-y-2">
+              {actionItems.map((item, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <span className="text-indigo-600 dark:text-indigo-400 font-bold">•</span>
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* STABILITY INDICATOR */}
+        <div className="mt-6 flex items-center justify-between p-4 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📈</span>
+            <div>
+              <div className="font-semibold text-gray-900 dark:text-gray-100">Condition Stability</div>
+              <div className="text-sm opacity-70">
+                {avgCv < 0.12 ? 'Very stable conditions — keep current routine' : avgCv < 0.25 ? 'Some variation — monitor closely' : 'High variation — check for issues'}
               </div>
             </div>
           </div>
-
-          <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40">
-            <div className="flex items-center justify-between">
-              <div className="font-semibold">Moisture</div>
-              <div className="text-xs opacity-70">Variation</div>
-            </div>
-            <div className="mt-2 flex items-center gap-3">
-              <div className="flex-1">
-                <div className="text-2xl font-bold tabular-nums">{formatValue(mAvg,'%')}</div>
-                <div className="text-xs opacity-70 mt-1">{mInfo.reason}</div>
-                <div className="mt-2"><span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: statusColorSimple(mInfo.status), color:'#fff' }}>{mInfo.status}</span></div>
-              </div>
-              <div className="w-20 sm:w-28">
-                <AutoSparkline color="#38bdf8" data={mS.slice(-48)} times={times ? times.slice(-48) : undefined} unit="%" />
-              </div>
-            </div>
+          <div className="px-4 py-2 rounded-lg font-bold text-lg" style={{ 
+            background: avgCv < 0.12 ? '#10b98122' : avgCv < 0.25 ? '#f59e0b22' : '#ef444422',
+            color: avgCv < 0.12 ? '#10b981' : avgCv < 0.25 ? '#f59e0b' : '#ef4444'
+          }}>
+            {avgCv < 0.12 ? 'Stable' : avgCv < 0.25 ? 'Moderate' : 'Variable'}
           </div>
-
-          <div className="rounded-lg border border-[hsl(var(--border))] p-3 bg-white/3 dark:bg-gray-900/40">
-            <div className="flex items-center justify-between">
-              <div className="font-semibold">N / P / K (ppm)</div>
-              <div className="text-xs opacity-70">Latest avg</div>
-            </div>
-            <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-              <div className="p-2 rounded border bg-white/5">
-                <div className="font-semibold tabular-nums">{Math.round(nAvg)}</div>
-                <div className="text-xs opacity-70">N — {nInfo.status.toLowerCase()}</div>
-              </div>
-              <div className="p-2 rounded border bg-white/5">
-                <div className="font-semibold tabular-nums">{Math.round(pAvg)}</div>
-                <div className="text-xs opacity-70">P — {pInfo.status.toLowerCase()}</div>
-              </div>
-              <div className="p-2 rounded border bg-white/5">
-                <div className="font-semibold tabular-nums">{Math.round(kAvg)}</div>
-                <div className="text-xs opacity-70">K — {kInfo.status.toLowerCase()}</div>
-              </div>
-            </div>
-            <div className="mt-3 text-sm opacity-70">Quick tip: {npkSummary(nAvg,pAvg,kAvg)}</div>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <div className="font-semibold">Simple insights</div>
-          <div className="mt-2 text-sm space-y-2 text-gray-700 dark:text-gray-300">
-            {plainInsights.length === 0 && <div>No clear relationships detected this week.</div>}
-            {plainInsights.map((s, i) => <div key={i}>• {s}</div>)}
-          </div>
-        </div>
-
-        <div className="mt-4 text-sm">
-          <div className="font-semibold">Summary of alerts</div>
-          <div className="text-xs opacity-70 mt-1">{totalAlerts} alert{totalAlerts!==1?'s':''} recorded during this period.</div>
-          <div className="mt-2 text-xs">Recommendation: {avgCv < 0.12 ? 'Conditions are generally steady — continue current routine.' : 'Investigate sources of variability (moisture, feeding, ventilation).'} </div>
         </div>
       </div>
     </motion.section>

@@ -17,6 +17,7 @@ import { db } from "../lib/firebase"
 import { motion, AnimatePresence, easeOut } from "framer-motion"
 import { computeTrend, formatValue, movingAverage, stddev, detectAnomalies, setTrendSettings, getTrendSettings, pearsonCorrelation, rateOfChangePerHour, timeToTarget, stabilityScore, moistureDeficit, cumulativeDegreeHours, sensorHealthMetrics } from "../lib/trend"
 import HelpTip from "../components/HelpTip"
+import { getDummyDataEnabled, onDummyDataChange } from "../lib/dummyData"
 
 /* ----------------------------- Config --------------------------------- */
 const DEVICE_ID = "esp32-001"
@@ -64,9 +65,9 @@ const WINDOWS: Record<RangeKey, number> = {
 /* trend helpers live in src/lib/trend.ts */
 
 /* ---------------------- Firestore hook ------------------------ */
-function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID) {
+function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID, dummyEnabled: boolean) {
   const [samples, setSamples] = React.useState<Sample[]>([])
-  const [mode, setMode] = React.useState<"firebase" | "sim">("sim")
+  const [mode, setMode] = React.useState<"firebase" | "sim">(dummyEnabled ? "sim" : "firebase")
 
   React.useEffect(() => {
     let simTimer: number | undefined
@@ -75,6 +76,7 @@ function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID) {
 
     const startSim = () => {
       if (simTimer) return
+      if (!dummyEnabled) return
       const now = Date.now()
       let temp = 48,
         moist = 62,
@@ -177,30 +179,36 @@ function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID) {
             window.clearInterval(simTimer)
             simTimer = undefined
           }
-        } else if (!sawValid && !simTimer) {
+        } else if (!sawValid && !simTimer && dummyEnabled) {
           startSim()
         }
       },
       () => {
-        if (!simTimer) startSim()
+        if (dummyEnabled && !simTimer) startSim()
+        if (!dummyEnabled) setMode("firebase")
       }
     )
 
-    startSim()
+    if (dummyEnabled) startSim()
+    if (!dummyEnabled) setMode("firebase")
 
     return () => {
       unsub()
       if (simTimer) window.clearInterval(simTimer)
     }
-  }, [range, deviceId])
+  }, [range, deviceId, dummyEnabled])
 
   return { samples, mode }
 }
 
 /* ------------------------------- Page ---------------------------------- */
 export default function Sensors() {
+  const [dummyEnabled, setDummyEnabled] = React.useState(getDummyDataEnabled())
+
+  React.useEffect(() => onDummyDataChange(() => setDummyEnabled(getDummyDataEnabled())), [])
+
   const [range, setRange] = React.useState<RangeKey>("live")
-  const { samples, mode } = useSensorHistory(range, DEVICE_ID)
+  const { samples, mode } = useSensorHistory(range, DEVICE_ID, dummyEnabled)
   const [showSettings, setShowSettings] = React.useState(false)
   const [trendSettingsState, setTrendSettingsState] = React.useState(() => getTrendSettings())
   const [settingsVersion, setSettingsVersion] = React.useState(0)
@@ -549,13 +557,69 @@ export default function Sensors() {
 
 /* ------------------------------ Subcomponents ------------------------------ */
 function SummaryCard({ series, times, kpi, range }:{ series:{ temp:number[]; moist:number[]; n:number[]; p:number[]; k:number[] }, times?:number[]; kpi:any; range:RangeKey }){
-  // compute high-impact analytics using helpers from src/lib/trend.ts
-  const stable = stabilityScore({ temp: series.temp, moist: series.moist, n: series.n, p: series.p, k: series.k })
-  const tempROC = rateOfChangePerHour(series.temp, times)
-  const moistROC = rateOfChangePerHour(series.moist, times)
-  const moistDef = moistureDeficit(kpi.moist.avg)
-  const moistEta = timeToTarget(series.moist, times, 65)
-  const health = sensorHealthMetrics(times)
+  // Compute trends for the displayed data range
+  const tempTrend = computeTrend(series.temp, times)
+  const moistTrend = computeTrend(series.moist, times)
+  const nTrend = computeTrend(series.n, times)
+  const pTrend = computeTrend(series.p, times)
+  const kTrend = computeTrend(series.k, times)
+
+  // Simple status checks
+  const tempStatus = statusFor(kpi.temp.avg, RANGES.temp.min, RANGES.temp.max)
+  const moistStatus = statusFor(kpi.moist.avg, RANGES.moist.min, RANGES.moist.max)
+  const nStatus = statusFor(kpi.n.avg, RANGES.n.min, RANGES.n.max)
+  const pStatus = statusFor(kpi.p.avg, RANGES.p.min, RANGES.p.max)
+  const kStatus = statusFor(kpi.k.avg, RANGES.k.min, RANGES.k.max)
+
+  // Overall health
+  const allOk = [tempStatus, moistStatus, nStatus, pStatus, kStatus].every(s => s === 'ok')
+  const hasHigh = [tempStatus, moistStatus, nStatus, pStatus, kStatus].some(s => s === 'high')
+  const hasLow = [tempStatus, moistStatus, nStatus, pStatus, kStatus].some(s => s === 'low')
+  
+  const overallStatus = allOk ? '✓ All Good' : hasHigh && hasLow ? '⚠ Mixed Issues' : hasHigh ? '↑ Too High' : '↓ Too Low'
+  const overallColor = allOk ? '#10b981' : '#f59e0b'
+
+  // Quick insights based on current data
+  const insights: string[] = []
+  
+  // Temperature insights
+  if (tempStatus === 'high') {
+    insights.push('🌡️ Temperature is high — improve ventilation')
+  } else if (tempStatus === 'low') {
+    insights.push('🌡️ Temperature is low — check insulation or add warmth')
+  } else if (tempTrend.trend.includes('Rising')) {
+    insights.push('🌡️ Temperature rising steadily')
+  } else if (tempTrend.trend.includes('Falling')) {
+    insights.push('🌡️ Temperature declining')
+  }
+
+  // Moisture insights
+  if (moistStatus === 'high') {
+    insights.push('💧 Moisture is high — reduce watering')
+  } else if (moistStatus === 'low') {
+    insights.push('💧 Moisture is low — add water gradually')
+  } else if (moistTrend.trend.includes('Rising')) {
+    insights.push('💧 Moisture increasing')
+  } else if (moistTrend.trend.includes('Falling')) {
+    insights.push('💧 Moisture decreasing')
+  }
+
+  // NPK insights
+  const npkIssues: string[] = []
+  if (nStatus !== 'ok') npkIssues.push(`N ${nStatus}`)
+  if (pStatus !== 'ok') npkIssues.push(`P ${pStatus}`)
+  if (kStatus !== 'ok') npkIssues.push(`K ${kStatus}`)
+  
+  if (npkIssues.length > 0) {
+    insights.push(`🌿 Nutrients: ${npkIssues.join(', ')} — adjust feeding`)
+  }
+
+  if (insights.length === 0) {
+    insights.push('✅ All conditions looking good!')
+  }
+
+  // Time range label
+  const timeLabel = range === 'live' ? 'Last 30 min' : range === '1h' ? 'Last hour' : range === '24h' ? 'Last 24 hours' : 'Last 7 days'
 
   return (
     <motion.section
@@ -569,52 +633,74 @@ function SummaryCard({ series, times, kpi, range }:{ series:{ temp:number[]; moi
       <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
       <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
 
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base font-semibold">Summary</h3>
-        <div className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: '#f3f4f6', color: '#111827' }}>{range.toUpperCase()}</div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-base font-semibold">Quick Summary</h3>
+        <div className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: '#f3f4f6', color: '#111827' }}>{timeLabel}</div>
       </div>
 
-      <div className="flex items-center gap-3 mb-3">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full" style={{ background: '#ecfdf5', color: '#065f46' }}>
-          <div className="text-sm font-bold">{stable}</div>
-        </div>
-        <div>
-          <div className="text-sm font-semibold">Stability</div>
-          <div className="text-xs opacity-70">Higher is better — lower variability</div>
+      {/* Overall Status Badge */}
+      <div className="flex items-center gap-3 mb-4 p-3 rounded-lg" style={{ background: overallColor + '15', border: `2px solid ${overallColor}55` }}>
+        <div className="text-2xl">{allOk ? '✓' : '⚠'}</div>
+        <div className="flex-1">
+          <div className="font-semibold" style={{ color: overallColor }}>{overallStatus}</div>
+          <div className="text-xs opacity-70">For this {timeLabel.toLowerCase()}</div>
         </div>
       </div>
 
-      <div className="space-y-3 text-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-xs opacity-70">Temp trend</div>
-            <div className="font-semibold tabular-nums">{tempROC.slopePerHour >= 0 ? '+' : ''}{tempROC.slopePerHour} °C/hr</div>
+      {/* Current Values - Clean and simple */}
+      <div className="space-y-3 mb-4">
+        <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-gray-800/40">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🌡️</span>
+            <span className="text-sm font-medium">Temperature</span>
           </div>
-          <div className="text-xs opacity-70 text-right">{computeTrend(series.temp, times).trend}</div>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-xs opacity-70">Moisture trend</div>
-            <div className="font-semibold tabular-nums">{moistROC.slopePerHour >= 0 ? '+' : ''}{moistROC.slopePerHour} %/hr</div>
-            <div className="text-xs opacity-60">{moistDef.status === 'within' ? 'Within target band' : moistDef.status === 'dry' ? `Dry by ${moistDef.deficit}%` : `Wet by ${moistDef.deficit}%`}</div>
-          </div>
-          <div className="text-xs text-right">
-            {moistEta ? <div>ETA: <span className="tabular-nums">{Math.max(0,Math.round(moistEta.hours))}h</span></div> : <div className="opacity-70">No ETA</div>}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold tabular-nums">{kpi.temp.avg.toFixed(1)}°C</span>
+            <span className="text-xs px-2 py-0.5 rounded" style={{ background: colorFor(tempStatus), color: '#fff' }}>
+              {tempTrend.trend === 'Rising' ? '↑' : tempTrend.trend === 'Falling' ? '↓' : '→'}
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-xs opacity-70">Sensor health</div>
-            <div className="text-sm">{health.stale ? 'Stale readings' : 'Online'}</div>
+        <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-gray-800/40">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">💧</span>
+            <span className="text-sm font-medium">Moisture</span>
           </div>
-          <div className="text-xs text-right opacity-70">
-            {health.medianIntervalMin ? `${health.medianIntervalMin} min median` : '—'}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold tabular-nums">{kpi.moist.avg.toFixed(1)}%</span>
+            <span className="text-xs px-2 py-0.5 rounded" style={{ background: colorFor(moistStatus), color: '#fff' }}>
+              {moistTrend.trend === 'Rising' ? '↑' : moistTrend.trend === 'Falling' ? '↓' : '→'}
+            </span>
           </div>
         </div>
 
-        <div className="text-xs opacity-70">Quick tips: {moistDef.status === 'dry' ? 'Consider watering soon.' : moistDef.status === 'wet' ? 'Hold watering; moisture high.' : 'Conditions within target range.'}</div>
+        <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-gray-800/40">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🌿</span>
+            <span className="text-sm font-medium">NPK</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-semibold tabular-nums">
+            <span>N: {kpi.n.avg}</span>
+            <span className="opacity-50">•</span>
+            <span>P: {kpi.p.avg}</span>
+            <span className="opacity-50">•</span>
+            <span>K: {kpi.k.avg}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Key Insights */}
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+        <div className="text-xs font-semibold mb-2 opacity-70">Key Insights:</div>
+        <div className="space-y-1.5">
+          {insights.map((insight, i) => (
+            <div key={i} className="text-sm leading-relaxed flex items-start gap-2">
+              <span className="text-xs opacity-50">•</span>
+              <span>{insight}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </motion.section>
   )

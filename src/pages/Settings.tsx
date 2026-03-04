@@ -5,12 +5,12 @@ import {
   doc,
   getDoc,
   setDoc,
-  collection,
-  addDoc,
+  onSnapshot,
   serverTimestamp,
   arrayUnion,
 } from "firebase/firestore"
 import { db } from "../lib/firebase"
+import { getDummyDataEnabled, onDummyDataChange, setDummyDataEnabled } from "../lib/dummyData"
 
 type ThresholdField = { min: number | ""; max: number | "" }
 type Thresholds = {
@@ -22,7 +22,6 @@ type Thresholds = {
 }
 
 const THRESHOLDS_KEY = "tt_thresholds"
-const ALERT_EMAIL_KEY = "tt_alert_email"
 
 const DEFAULTS = {
   temperature: { min: 15, max: 65 },
@@ -69,16 +68,23 @@ export default function Settings() {
     const saved = localStorage.getItem(THRESHOLDS_KEY)
     return saved ? migrateThresholds(saved) : DEFAULTS
   })
-  const [email, setEmail] = React.useState<string>(() => localStorage.getItem(ALERT_EMAIL_KEY) || "")
+  const [emailInput, setEmailInput] = React.useState<string>("")
+  const [emailList, setEmailList] = React.useState<string[]>([])
+  const [savedEmails, setSavedEmails] = React.useState<string[]>([])
   const [saving, setSaving] = React.useState<"thresholds" | "email" | null>(null)
   const [banner, setBanner] = React.useState<{ kind: "ok" | "err"; msg: string } | null>(null)
   const [savedPulse, setSavedPulse] = React.useState<"t" | "e" | null>(null)
   const [loadingEmail, setLoadingEmail] = React.useState<boolean>(true)
+  const emailListRef = React.useRef<string[]>([])
+  const savedEmailsRef = React.useRef<string[]>([])
+  const [dummyEnabled, setDummyEnabled] = React.useState<boolean>(getDummyDataEnabled())
 
   // Simple client-side gate: always start locked on page load
   const [unlocked, setUnlocked] = React.useState<boolean>(false)
   const [pw, setPw] = React.useState<string>("")
   const [pwError, setPwError] = React.useState<string | null>(null)
+
+  React.useEffect(() => onDummyDataChange(() => setDummyEnabled(getDummyDataEnabled())), [])
 
   const tryUnlock = () => {
     if (pw === "terratrak") {
@@ -151,69 +157,186 @@ export default function Settings() {
     }, 300)
   }
 
-  const validateEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)
-  const emailDirty = React.useMemo(() => (localStorage.getItem(ALERT_EMAIL_KEY) || "") !== email, [email])
+  const validateEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())
+  const normalizeEmails = (emails: string[]) =>
+    emails
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => validateEmail(e))
+      .sort()
 
-  const saveEmail = () => {
-    if (!validateEmail(email)) {
+  const emailDirty = React.useMemo(() => {
+    return JSON.stringify(normalizeEmails(emailList)) !== JSON.stringify(normalizeEmails(savedEmails))
+  }, [emailList, savedEmails])
+
+  React.useEffect(() => {
+    emailListRef.current = emailList
+  }, [emailList])
+
+  React.useEffect(() => {
+    savedEmailsRef.current = savedEmails
+  }, [savedEmails])
+
+  const addEmail = () => {
+    const val = emailInput.trim()
+    if (!validateEmail(val)) {
       setBanner({ kind: "err", msg: "Please enter a valid email address." })
       return
     }
+    setEmailList((prev) => {
+      const next = Array.from(new Set([...prev, val]))
+      return next
+    })
+    setEmailInput("")
+  }
+
+  const persistRecipients = (emails: string[]) => {
+    const emailDocRef = doc(db, "email_addresses", "recipients")
+    return setDoc(emailDocRef, { emails, updated_at: serverTimestamp() }, { merge: true })
+  }
+
+  const removeEmail = (value: string) => {
+    const next = emailListRef.current.filter((e) => e !== value)
+    setEmailList(next)
     setSaving("email")
-    // Save the email value before clearing
-    const emailToSave = email
-    // References: email_address doc + logs doc (both in email_addresses collection)
-    const emailDocRef = doc(db, "email_addresses", "email_address")
+    persistRecipients(normalizeEmails(next))
+      .then(() => {
+        setSavedEmails(normalizeEmails(next))
+        setSaving(null)
+        setSavedPulse("e")
+        setBanner({ kind: "ok", msg: "Recipient removed." })
+        setTimeout(() => setSavedPulse(null), 900)
+      })
+      .catch((err) => {
+        console.error("Failed to remove email from Firestore", err)
+        setSaving(null)
+        setSavedPulse("e")
+        setBanner({ kind: "err", msg: "Failed to remove recipient." })
+        setTimeout(() => setSavedPulse(null), 900)
+      })
+  }
+
+  const saveEmail = () => {
+    setSaving("email")
+    const sanitized = normalizeEmails(emailList)
+    // References: recipients doc + logs doc (both in email_addresses collection)
     const logsDocRef = doc(db, "email_addresses", "logs")
 
-    // Write current email to email_address doc + append to logs doc as array
+    // Write current recipient list + append to logs
     Promise.all([
-      setDoc(emailDocRef, { email: emailToSave, updated_at: serverTimestamp() }, { merge: true }),
+      persistRecipients(sanitized),
       setDoc(logsDocRef, { 
-        entries: arrayUnion({ email: emailToSave, savedAt: new Date().toISOString() })
+        entries: arrayUnion({ emails: sanitized, savedAt: new Date().toISOString() })
       }, { merge: true }),
     ])
       .then(async () => {
-        // Clear the email field and localStorage
-        setEmail("")
-        localStorage.removeItem(ALERT_EMAIL_KEY)
         setSaving(null)
+        setSavedEmails(sanitized)
         setSavedPulse("e")
-        setBanner({ kind: "ok", msg: "Alert email saved & logged (cloud + local)." })
+        setBanner({ kind: "ok", msg: "Alert recipients saved to cloud." })
         setTimeout(() => setSavedPulse(null), 900)
       })
       .catch((err) => {
         console.error("Failed to save email to Firestore", err)
         setSaving(null)
         setSavedPulse("e")
-        setBanner({ kind: "err", msg: "Saved locally but cloud log failed." })
+        setBanner({ kind: "err", msg: "Failed to save recipients to cloud." })
         setTimeout(() => setSavedPulse(null), 900)
       })
   }
 
-  // Load existing email from Firestore on mount (override local if cloud has value)
+  const migrateLegacyRecipients = async (): Promise<string[]> => {
+    try {
+      const legacyDoc = await getDoc(doc(db, "email_addresses", "email_address"))
+      const legacyEmail = legacyDoc.exists() ? legacyDoc.get("email") : null
+
+      const logsDoc = await getDoc(doc(db, "email_addresses", "logs"))
+      const logEntries = logsDoc.exists() ? logsDoc.get("entries") : []
+
+      const collected: string[] = []
+      if (typeof legacyEmail === "string") collected.push(legacyEmail)
+
+      if (Array.isArray(logEntries)) {
+        logEntries.forEach((entry) => {
+          if (typeof entry?.email === "string") collected.push(entry.email)
+          if (Array.isArray(entry?.emails)) collected.push(...entry.emails)
+        })
+      }
+
+      const merged = normalizeEmails(collected)
+      if (merged.length) {
+        await persistRecipients(merged)
+      }
+      return merged
+    } catch (e) {
+      console.warn("Could not migrate legacy recipients", e)
+      return []
+    }
+  }
+
+  // Load & subscribe to recipient list from Firestore
   React.useEffect(() => {
     let active = true
-    const run = async () => {
-      try {
-        const ref = doc(db, "email_addresses", "email_address")
-        const snap = await getDoc(ref)
-        if (active && snap.exists()) {
-          const cloudEmail = snap.get("email")
-          if (typeof cloudEmail === "string" && cloudEmail.trim()) {
-            // Don't auto-populate the field, just store in Firestore
-            // setEmail(cloudEmail)
-            // localStorage.setItem(ALERT_EMAIL_KEY, cloudEmail)
-          }
+    try {
+      const ref = doc(db, "email_addresses", "recipients")
+      const unsub = onSnapshot(ref, (snap) => {
+        if (!active) return
+        const cloudEmails = Array.isArray(snap.get("emails")) ? snap.get("emails") : []
+        const cleaned = normalizeEmails(cloudEmails)
+
+        if (cleaned.length === 0) {
+          migrateLegacyRecipients().then((merged) => {
+            if (!active) return
+            setSavedEmails(merged)
+            setEmailList(merged)
+            setLoadingEmail(false)
+          })
+          return
         }
-      } catch (e) {
-        console.warn("Could not load email from Firestore", e)
-      } finally {
+
+        setSavedEmails(cleaned)
+        setEmailList(cleaned)
+        setLoadingEmail(false)
+      }, (err) => {
+        console.warn("Could not load emails from Firestore", err)
         if (active) setLoadingEmail(false)
-      }
+      })
+      return () => { active = false; unsub() }
+    } catch (e) {
+      console.warn("Could not subscribe to email recipients", e)
+      if (active) setLoadingEmail(false)
+      return () => { active = false }
     }
-    run()
-    return () => { active = false }
+  }, [])
+
+  // Load & subscribe to threshold config from Firestore so changes propagate across devices
+  React.useEffect(() => {
+    let active = true
+    try {
+      const ref = doc(db, "alert_configs", "default")
+      const unsub = onSnapshot(ref, (snap) => {
+        if (!active) return
+        if (!snap.exists()) return
+        try {
+          const cloud = snap.data() || {}
+          if (cloud.thresholds) {
+            const migrated = migrateThresholds(cloud.thresholds)
+            setThresholds(migrated)
+            try { localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(migrated)) } catch (e) { /* ignore */ }
+            setBanner({ kind: "ok", msg: "Thresholds synced from cloud." })
+            setTimeout(() => setBanner(null), 2200)
+          }
+        } catch (e) {
+          console.warn('failed to apply cloud thresholds', e)
+        }
+      }, (err) => {
+        console.warn('thresholds snapshot failed', err)
+      })
+      return () => { active = false; unsub() }
+    } catch (e) {
+      console.warn('could not subscribe to threshold config', e)
+      return () => { active = false }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
@@ -350,36 +473,66 @@ export default function Settings() {
           title="Alert preferences"
           subtitle="Choose where TerraTrak should send notifications."
           icon={<BellIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />}
-          chip={emailDirty ? "Unsaved changes" : email ? "Saved" : "Not set"}
-          chipVariant={emailDirty ? "muted" : email ? "success" : "muted"}
+          chip={emailDirty ? "Unsaved changes" : emailList.length ? "Saved" : "Not set"}
+          chipVariant={emailDirty ? "muted" : emailList.length ? "success" : "muted"}
         />
 
         <div className="mt-4 max-w-xl">
           <label className="block text-sm font-medium mb-1 flex items-center gap-2">
-            Alert email
-            <InfoTip text="We’ll email you when readings breach the thresholds above, and for system notices (e.g., sensor offline)." />
+            Alert recipients
+            <InfoTip text="We’ll email everyone on this list when readings breach thresholds or the sensor goes offline." />
           </label>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="email"
               inputMode="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") addEmail() }}
+              placeholder="Add email (e.g. team@company.com)"
               className="input flex-1"
               disabled={loadingEmail}
             />
+            <button
+              onClick={addEmail}
+              className="rounded-xl px-4 py-2 border border-[hsl(var(--border))] dark:border-white/15 hover:bg-[hsl(var(--muted))] dark:hover:bg-white/[0.06] transition-colors disabled:opacity-60"
+              disabled={loadingEmail || saving === "email"}
+            >
+              Add
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {emailList.length === 0 ? (
+              <span className="text-xs text-gray-600 dark:text-gray-300">No recipients yet.</span>
+            ) : (
+              emailList.map((addr) => (
+                <span
+                  key={addr}
+                  className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs bg-[hsl(var(--muted))] dark:bg-white/[0.06] border border-[hsl(var(--border))] dark:border-white/10"
+                >
+                  <span className="text-gray-700 dark:text-gray-200">{addr}</span>
+                  <button
+                    onClick={() => removeEmail(addr)}
+                    className="text-gray-500 hover:text-rose-600"
+                    aria-label={`Remove ${addr}`}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+          <div className="mt-3 flex items-center gap-2">
             <button
               onClick={saveEmail}
               className="rounded-xl px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-60"
               disabled={loadingEmail || saving === "email" || !emailDirty}
             >
-              {loadingEmail ? "Loading…" : saving === "email" ? "Saving…" : "Save"}
+              {loadingEmail ? "Loading…" : saving === "email" ? "Saving…" : "Save recipients"}
             </button>
+            <span className="text-xs text-gray-600 dark:text-gray-300">All saved emails receive the same alerts.</span>
           </div>
-          <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
-            Use a shared team inbox if multiple people should receive alerts.
-          </p>
         </div>
 
         <div className="mt-5 grid grid-cols-2 sm:grid-cols-2 gap-3">
@@ -387,6 +540,39 @@ export default function Settings() {
           <MiniBadge>Threshold breach</MiniBadge>
           <MiniBadge>Sensor offline</MiniBadge>
           <MiniBadge>Firmware update</MiniBadge>
+        </div>
+      </section>
+
+      {/* Testing tools */}
+      <section
+        className={[
+          "xl:col-span-12 setting-card p-4 sm:p-6 overflow-hidden relative",
+          "animate-fade-in-up",
+        ].join(" ")}
+        style={{ animationDelay: "220ms" }}
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+        <div className="pointer-events-none absolute -top-10 -right-16 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
+        <Header
+          title="Testing tools"
+          subtitle="Use simulated readings for demos and UI testing."
+          chip={dummyEnabled ? "Dummy data on" : "Live data only"}
+          chipVariant={dummyEnabled ? "success" : "muted"}
+        />
+
+        <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-4">
+          <ToggleSwitch
+            label="Enable dummy data"
+            enabled={dummyEnabled}
+            onChange={(next) => {
+              setDummyEnabled(next)
+              setDummyDataEnabled(next)
+            }}
+          />
+          <p className="text-xs text-gray-600 dark:text-gray-300">
+            When off, charts and cards only show live readings from Firebase.
+          </p>
         </div>
       </section>
     </div>
@@ -520,6 +706,33 @@ function MiniBadge({ children }: { children: React.ReactNode }) {
       <span className="w-1 h-1 rounded-full bg-emerald-500" />
       {children}
     </span>
+  )
+}
+
+function ToggleSwitch({ label, enabled, onChange }: { label: string; enabled: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      onClick={() => onChange(!enabled)}
+      className="inline-flex items-center gap-3"
+    >
+      <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{label}</span>
+      <span
+        className={[
+          "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+          enabled ? "bg-emerald-600" : "bg-gray-300 dark:bg-white/15",
+        ].join(" ")}
+      >
+        <span
+          className={[
+            "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+            enabled ? "translate-x-6" : "translate-x-1",
+          ].join(" ")}
+        />
+      </span>
+    </button>
   )
 }
 

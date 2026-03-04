@@ -1,4 +1,4 @@
-/* =========================================
+﻿/* =========================================
    Tailwind layers
 ========================================= */
 @tailwind base;
@@ -336,7 +336,7 @@
   .tt-qgrid{ grid-template-columns: 1fr; }
 }
 
-/* soft corner glow used on About/Settings — reused here */
+/* soft corner glow used on About/Settings ΓÇö reused here */
 .corner-glow{
   position:absolute; width:12rem; height:12rem; border-radius:9999px;
   pointer-events:none; filter: blur(28px); opacity:.18;

@@ -73,7 +73,7 @@ export default function Topbar() {
       {/* Mobile Topbar - Fixed positioning (like mobile sidebar) */}
       <header
         className={[
-          "sm:hidden fixed top-0 left-0 right-0 z-50",
+          "sm:hidden fixed top-0 inset-x-0 z-50 flex justify-center",
           "bg-white/25 dark:bg-zinc-900/35",
           "backdrop-blur-xl",
           "border-b border-white/40 dark:border-white/25",
@@ -82,11 +82,11 @@ export default function Topbar() {
         ].join(" ")}
         style={{ WebkitBackdropFilter: 'blur(24px)' }}
       >
-        <div className="px-3 py-2.5">
+        <div className="w-full max-w-7xl px-3 py-2.5">
           <h1 className="text-base font-semibold tracking-tight text-gray-900 dark:text-gray-50 text-center">
             {title}
           </h1>
-          
+
           {/* Quote - Only visible at top */}
           <div
             className={[

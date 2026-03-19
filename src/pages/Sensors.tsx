@@ -390,7 +390,7 @@ export default function Sensors() {
 
   return (
     <motion.div
-      className="min-h-screen px-4 md:px-6 py-6 bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100 transition-colors duration-300"
+      className="py-3 sm:py-4 md:py-6 text-gray-900 dark:text-gray-100 transition-colors duration-300"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
     >

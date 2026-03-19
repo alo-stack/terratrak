@@ -341,7 +341,7 @@ export default function Settings() {
 
   return (
     <div className="relative">
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 animate-fade-in-up px-3 sm:px-0">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 animate-fade-in-up">
       
       {banner && (
         <div className="xl:col-span-12 banner-enter rounded-xl px-4 py-2 border text-sm bg-white/80 dark:bg-[hsl(var(--card))]/85 backdrop-blur border-[hsl(var(--border))] dark:border-white/10">

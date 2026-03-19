@@ -422,7 +422,7 @@ export default function Overview() {
 
   return (
     <motion.div
-      className="space-y-3 md:space-y-4 overview-root text-gray-800 dark:text-gray-100 px-2 sm:px-0"
+      className="space-y-3 md:space-y-4 overview-root text-gray-800 dark:text-gray-100"
       variants={containerVariants}
       initial="hidden"
       animate="show"

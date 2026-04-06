@@ -51,10 +51,10 @@ export default function ThemeToggle() {
       onClick={onClick}
       className={[
         "toggle-btn grid place-items-center transition-all duration-200",
-        "w-9 h-9 md:w-8 md:h-8 rounded-full",
+        "w-10 h-10 md:w-8 md:h-8 rounded-full",
         active
-          ? "bg-emerald-500/15 dark:bg-emerald-500/10 shadow-inner scale-105"
-          : "hover:bg-black/[0.08] dark:hover:bg-white/[0.1] active:bg-black/10 dark:active:bg-white/15 active:scale-95"
+          ? "bg-emerald-500/20 dark:bg-emerald-500/15 shadow-inner scale-105"
+          : "hover:bg-black/[0.1] dark:hover:bg-white/[0.15] active:bg-black/15 dark:active:bg-white/20 active:scale-95"
       ].join(" ")}
     >
       <span className="sr-only">{label}</span>
@@ -68,10 +68,10 @@ export default function ThemeToggle() {
         // horizontal on mobile, vertical on md+
         "toggle-capsule flex md:flex-col items-center gap-1 md:gap-1.5",
         // sizing
-        "md:w-12 md:py-1.5 md:rounded-2xl w-auto px-1.5 py-1 rounded-full",
+        "md:w-12 md:py-1.5 md:rounded-2xl w-auto px-2 py-1.5 rounded-full",
         // visuals
-        "bg-white/15 dark:bg-white/[0.08] backdrop-blur",
-        "border border-white/25 dark:border-white/15",
+        "bg-white/20 dark:bg-white/[0.12] backdrop-blur",
+        "border border-white/35 dark:border-white/25",
         sweeping ? "toggle-sweep" : ""
       ].join(" ")}
       tabIndex={-1}
@@ -82,7 +82,7 @@ export default function ThemeToggle() {
         <Icon
           name="moon"
           className={[
-            "w-4 h-4 transition-all duration-300",
+            "w-5 h-5 md:w-4 md:h-4 transition-all duration-300",
             dark
               ? "text-gray-100 drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] scale-110"
               : "text-gray-500 dark:text-gray-400",
@@ -96,7 +96,7 @@ export default function ThemeToggle() {
         <Icon
           name="sun"
           className={[
-            "w-4 h-4 transition-all duration-300",
+            "w-5 h-5 md:w-4 md:h-4 transition-all duration-300",
             !dark
               ? "text-yellow-500 drop-shadow-[0_0_10px_rgba(255,200,0,0.8)] scale-110"
               : "text-gray-500 dark:text-gray-400",

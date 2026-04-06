@@ -119,6 +119,59 @@ export default function About() {
           <MiniBadge>Software</MiniBadge>
         </div>
       </section>
+
+      {/* Detailed Guides */}
+      <section className="relative xl:col-span-12 card card-live p-5 md:p-6 overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60
+                     bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50"
+        />
+        <div
+          className="pointer-events-none absolute -top-10 -right-14 w-48 h-48 rounded-full
+                     bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10"
+        />
+
+        <Header icon={<Icon name="info" className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />} title="Getting Started" />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+          {/* Bedding Prep */}
+          <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--card))] p-4">
+            <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">🛏️ Bedding Preparation</h4>
+            <ol className="text-sm text-gray-700 dark:text-gray-200 space-y-2">
+              <li><strong>1) Build the base:</strong> Shred cardboard or newspaper into strips. Fill the bin about 2/3 with dry bedding.</li>
+              <li><strong>2) Moisten:</strong> Add water and mix until it feels like a wrung-out sponge. No dripping water.</li>
+              <li><strong>3) Add structure:</strong> Mix in a handful of dry leaves or coconut coir to keep air pockets.</li>
+              <li><strong>4) Add grit:</strong> Sprinkle a small amount of crushed eggshells or garden lime for worm digestion.</li>
+              <li><strong>5) Add starter feed:</strong> Bury a small handful of food scraps in one corner. Cover with bedding.</li>
+              <li><strong>6) Rest and check:</strong> Wait 24 hours, then add worms. If it smells sour, add more bedding.</li>
+            </ol>
+          </div>
+
+          {/* Food & Bedding Guide */}
+          <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--card))] p-4">
+            <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">🍎 Food & Bedding Guide</h4>
+            <div className="text-sm text-gray-700 dark:text-gray-200 space-y-2">
+              <div><strong>Feed weekly:</strong> Add a small amount, wait until most is gone before adding more.</div>
+              <div><strong>Good foods:</strong> Fruit & veg scraps, coffee grounds, tea bags, crushed eggshells.</div>
+              <div><strong>Balance with browns:</strong> Shredded cardboard, paper, dry leaves keep the bin airy.</div>
+              <div><strong>Avoid:</strong> Meat, dairy, oily foods, salty/spicy foods, excessive citrus or onion.</div>
+              <div><strong>Ratio:</strong> About 2–3 parts bedding (browns) to 1 part food (greens).</div>
+            </div>
+          </div>
+        </div>
+
+        {/* General Tips */}
+        <div className="mt-6 rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-white/40 dark:bg-gray-900/40 p-4">
+          <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">💡 Key Tips for Success</h4>
+          <ul className="text-sm text-gray-700 dark:text-gray-200 space-y-2">
+            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Keep nutrient balance; excess salts can stress the bin.</span></li>
+            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Turn or lift bedding weekly to prevent anaerobic pockets and improve airflow.</span></li>
+            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Small, frequent feedings reduce odor and prevent heating spikes.</span></li>
+            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Maintain a moist, wrung-out sponge feel—too wet limits air flow.</span></li>
+            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Shred carbon-rich materials (cardboard) to balance nitrogen-rich food scraps.</span></li>
+          </ul>
+        </div>
+      </section>
     </div>
   )
 }

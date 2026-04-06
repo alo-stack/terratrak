@@ -200,125 +200,6 @@ function useLiveSeries(dummyEnabled: boolean) {
   return { temp, moist, n, p, k, ts: tsArr, mode, lastUpdate }
 }
 
-/* --------------------------------------------------------------------- */
-/*               Weekly series hook – 7-day Firestore feed               */
-/* --------------------------------------------------------------------- */
-
-function useWeeklySeries(dummyEnabled: boolean, deviceId = DEVICE_ID) {
-  const [temp, setTemp] = React.useState<number[]>([])
-  const [moist, setMoist] = React.useState<number[]>([])
-  const [n, setN] = React.useState<number[]>([])
-  const [p, setP] = React.useState<number[]>([])
-  const [k, setK] = React.useState<number[]>([])
-  const [tsArr, setTsArr] = React.useState<number[]>([])
-
-  React.useEffect(() => {
-    let simTimer: number | undefined
-
-    if (dummyEnabled) {
-      const totalPoints = seriesWindow * 7
-      const stepMs = 15 * 60 * 1000
-      const now = Date.now()
-      let tv = 48, mv = 62, nv = 120, pv = 55, kv = 130
-      const t: number[] = []
-      const m: number[] = []
-      const ns: number[] = []
-      const ps: number[] = []
-      const ks: number[] = []
-      const ts: number[] = []
-      for (let i = totalPoints; i > 0; i--) {
-        tv = clamp(tv + (Math.random() - 0.5) * 1.1, 25, 70)
-        mv = clamp(mv + (Math.random() - 0.5) * 1.3, 30, 90)
-        nv = clamp(nv + (Math.random() - 0.5) * 6, 30, 260)
-        pv = clamp(pv + (Math.random() - 0.5) * 4, 10, 150)
-        kv = clamp(kv + (Math.random() - 0.5) * 6, 30, 260)
-        t.push(Number(tv.toFixed(1)))
-        m.push(Number(mv.toFixed(1)))
-        ns.push(Math.round(nv))
-        ps.push(Math.round(pv))
-        ks.push(Math.round(kv))
-        ts.push(now - i * stepMs)
-      }
-      setTemp(t)
-      setMoist(m)
-      setN(ns)
-      setP(ps)
-      setK(ks)
-      setTsArr(ts)
-
-      return () => {
-        if (simTimer) window.clearInterval(simTimer)
-      }
-    }
-
-    setTemp([])
-    setMoist([])
-    setN([])
-    setP([])
-    setK([])
-    setTsArr([])
-
-    const cutoffDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    const ref = collection(db, "sensor_readings", deviceId, "readings")
-    const q = query(
-      ref,
-      where("updatedAt", ">=", Timestamp.fromDate(cutoffDate)),
-      orderBy("updatedAt", "asc"),
-      qlimit(5000)
-    )
-
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const rows = snap.docs
-          .map((d) => {
-            const x = d.data() as any
-            return {
-              ts: x.updatedAt?.toMillis?.() ?? Date.now(),
-              temp: Number(x.tempC ?? x.temperature),
-              moist: Number(x.moisturePct ?? x.moisture),
-              n: Number(x.npk?.n),
-              p: Number(x.npk?.p),
-              k: Number(x.npk?.k),
-            }
-          })
-          .filter((r) => [r.temp, r.moist, r.n, r.p, r.k].every(Number.isFinite))
-
-        if (!rows.length) {
-          setTemp([])
-          setMoist([])
-          setN([])
-          setP([])
-          setK([])
-          setTsArr([])
-          return
-        }
-
-        setTemp(rows.map((r) => r.temp))
-        setMoist(rows.map((r) => r.moist))
-        setN(rows.map((r) => r.n))
-        setP(rows.map((r) => r.p))
-        setK(rows.map((r) => r.k))
-        setTsArr(rows.map((r) => r.ts))
-      },
-      () => {
-        setTemp([])
-        setMoist([])
-        setN([])
-        setP([])
-        setK([])
-        setTsArr([])
-      }
-    )
-
-    return () => {
-      unsub()
-      if (simTimer) window.clearInterval(simTimer)
-    }
-  }, [dummyEnabled, deviceId])
-
-  return { temp, moist, n, p, k, ts: tsArr }
-}
 
 /* ------------------------------ Component ------------------------------ */
 
@@ -326,8 +207,6 @@ export default function Overview() {
   const [dummyEnabled, setDummyEnabled] = React.useState(getDummyDataEnabled())
 
   React.useEffect(() => onDummyDataChange(() => setDummyEnabled(getDummyDataEnabled())), [])
-
-  const weekly = useWeeklySeries(dummyEnabled)
 
   const thresholds: Thresholds = React.useMemo(() => {
     try {
@@ -432,20 +311,9 @@ export default function Overview() {
         variants={cardVariant} whileHover="hover"
         style={{ willChange: 'transform,opacity' }}
       >
-        {/* animated gradient blob */}
-        <div aria-hidden className="absolute inset-0 pointer-events-none -z-10">
-          <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 800 160">
-            <defs>
-              <linearGradient id="g1" x1="0" x2="1">
-                <stop offset="0%" stopColor="#6ee7b7" stopOpacity="0.08" />
-                <stop offset="100%" stopColor="#34d399" stopOpacity="0.03" />
-              </linearGradient>
-            </defs>
-            <rect width="800" height="160" fill="url(#g1)" />
-          </svg>
-        </div>
-
-        <div className="card-shimmer" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] card-shimmer" />
+        <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+        <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
           <div className="min-w-0 flex-1">
@@ -489,6 +357,56 @@ export default function Overview() {
 
       {/* Weekly report (moved to bottom for layout/animation parity) */}
 
+      {/* Mobile-only Active Alerts - appears right after Overview */}
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.36 }}
+        className="lg:hidden relative rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md p-4 sm:p-5 overflow-hidden text-gray-800 dark:text-gray-100"
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+        <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+        <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
+
+        <h3 className="text-base sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">Active alerts</h3>
+        <div className="mt-3 space-y-2">
+          {alerts.length === 0 && (
+            <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">No active alerts. All parameters are within range.</div>
+          )}
+          <AnimatePresence>
+            {alerts.map(a => (
+              <motion.div
+                key={a.id}
+                className="rounded-lg border px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm flex items-center gap-2 alert-row"
+                style={{ borderColor: statusColor[a.level]+"55", background: statusColor[a.level]+"10", color: statusColor[a.level] }}
+                variants={alertVariant}
+                initial="hidden"
+                animate="show"
+                exit="exit"
+              >
+                <span className={"w-2 h-2 rounded-full flex-shrink-0 "+statusDotClass[a.level]} />
+                <span className="font-medium">{a.msg}</span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+
+        <div className="mt-4 sm:mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-3 sm:pt-4">
+          <h4 className="text-sm sm:text-sm font-semibold text-gray-900 dark:text-gray-100">Quick tip</h4>
+          <div className="mt-1 tip-wrap">
+            <AnimatePresence mode="wait">
+              <motion.p key={tipIdx} className="text-sm sm:text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>{tips[tipIdx]}</motion.p>
+            </AnimatePresence>
+          </div>
+          <div className="mt-3 text-xs sm:text-xs flex flex-wrap gap-3 sm:gap-4 opacity-80 text-gray-600 dark:text-gray-400">
+            <Link to="/about" className="hover:underline">Detailed guides</Link>
+            <Link to="/sensors" className="hover:underline text-emerald-600 dark:text-emerald-400">
+              7-Day Summary
+            </Link>
+          </div>
+        </div>
+      </motion.section>
+
         {/* Summaries + Right column (Harvest + Alerts) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-4 text-gray-800 dark:text-gray-100">
         <section className="lg:col-span-8 space-y-3 md:space-y-4">
@@ -522,8 +440,8 @@ export default function Overview() {
           />
         </section>
 
-        {/* Right column: Harvest card (glassy) + Active Alerts (separate card) */}
-        <div className="lg:col-span-4 flex flex-col gap-3">
+        {/* Right column: Harvest card (glassy) + Active Alerts (separate card) - Desktop only */}
+        <div className="hidden lg:flex lg:col-span-4 flex-col gap-3">
           {/* Harvest card removed per request */}
 
           <motion.section
@@ -534,6 +452,7 @@ export default function Overview() {
           >
             <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
             <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+            <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
 
             <h3 className="text-base sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">Active alerts</h3>
             <div className="mt-3 space-y-2">
@@ -559,53 +478,22 @@ export default function Overview() {
             </div>
 
             <div className="mt-4 sm:mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-3 sm:pt-4">
-              <h4 className="text-sm sm:text-sm font-semibold text-gray-900 dark:text-gray-100">Vermicomposting tip</h4>
+              <h4 className="text-sm sm:text-sm font-semibold text-gray-900 dark:text-gray-100">Quick tip</h4>
               <div className="mt-1 tip-wrap">
                 <AnimatePresence mode="wait">
                   <motion.p key={tipIdx} className="text-sm sm:text-sm text-gray-700 dark:text-gray-200 mt-1 tip-text" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>{tips[tipIdx]}</motion.p>
                 </AnimatePresence>
               </div>
-              <div className="mt-4 rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-white/60 dark:bg-gray-900/40 p-3">
-                <h5 className="text-xs sm:text-xs font-semibold text-gray-900 dark:text-gray-100">Bedding prep - quick steps</h5>
-                <ol className="mt-2 text-xs sm:text-xs text-gray-700 dark:text-gray-200 space-y-1">
-                  <li><strong>1) Build the base:</strong> Shred cardboard or newspaper into strips. Fill the bin about 2/3 with dry bedding.</li>
-                  <li><strong>2) Moisten:</strong> Add water and mix until it feels like a wrung-out sponge. No dripping water.</li>
-                  <li><strong>3) Add structure:</strong> Mix in a handful of dry leaves or coconut coir to keep air pockets.</li>
-                  <li><strong>4) Add grit:</strong> Sprinkle a small amount of crushed eggshells or garden lime for worm digestion.</li>
-                  <li><strong>5) Add a starter feed:</strong> Bury a small handful of food scraps in one corner. Cover with bedding.</li>
-                  <li><strong>6) Rest and check:</strong> Wait 24 hours, then add worms. If it smells sour or feels wet, add more dry bedding.</li>
-                </ol>
-              </div>
-              <div className="mt-3 rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-white/60 dark:bg-gray-900/40 p-3">
-                <h5 className="text-xs sm:text-xs font-semibold text-gray-900 dark:text-gray-100">Food and bedding guide</h5>
-                <div className="mt-2 text-xs sm:text-xs text-gray-700 dark:text-gray-200 space-y-1">
-                  <div><strong>Feed weekly:</strong> Add a small amount, then wait until most of it is gone before adding more.</div>
-                  <div><strong>Good foods:</strong> Fruit and veg scraps, coffee grounds, tea bags (no plastic), crushed eggshells.</div>
-                  <div><strong>Balance with browns:</strong> Shredded cardboard, paper, dry leaves, or coir keep the bin airy.</div>
-                  <div><strong>Avoid or limit:</strong> Meat, dairy, oily foods, salty/spicy foods, and lots of citrus or onion.</div>
-                  <div><strong>Simple ratio:</strong> About 2 to 3 parts bedding (browns) to 1 part food (greens).</div>
-                </div>
-              </div>
-              <div className="mt-2 text-xs sm:text-xs flex flex-wrap gap-3 sm:gap-4 opacity-80 text-gray-600 dark:text-gray-400">
-                <Link to="/about" className="hover:underline">Learn more</Link>
-                <a href="https://www.youtube.com/watch?v=EshdEtWWw3A" target="_blank" rel="noreferrer" className="relative text-red-500 after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-0 after:bg-red-500 after:transition-all after:duration-300 hover:after:w-full">Quick video guide</a>
+              <div className="mt-3 text-xs sm:text-xs flex flex-wrap gap-3 sm:gap-4 opacity-80 text-gray-600 dark:text-gray-400">
+                <Link to="/about" className="hover:underline">Detailed guides</Link>
+                <Link to="/sensors" className="hover:underline text-emerald-600 dark:text-emerald-400">
+                  7-Day Summary
+                </Link>
               </div>
             </div>
           </motion.section>
         </div>
       </div>
-
-      {/* Weekly report */}
-      <WeeklyReportCard
-        tempSeries={weekly.temp}
-        moistSeries={weekly.moist}
-        nSeries={weekly.n}
-        pSeries={weekly.p}
-        kSeries={weekly.k}
-        thresholds={thresholds}
-        times={weekly.ts}
-        source={dummyEnabled ? "dummy" : "firebase"}
-      />
 
       {/* Styles unchanged except for dark-friendly colors */}
       <style>{`
@@ -661,10 +549,9 @@ function SummaryRow({
       animate="show"
       whileHover="hover"
     >
-      {/* floating animated gradient */}
-      <div aria-hidden className="absolute -left-6 -top-10 w-40 h-40 rounded-full opacity-10 blur-3xl animate-blob-slow pointer-events-none" style={{ background: 'linear-gradient(135deg,#34d399,#60a5fa)' }} />
-
-      <div className="card-shimmer" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] card-shimmer" />
+      <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+      <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
       <div className="p-3 sm:p-4 md:p-6">
         <div className="flex flex-col gap-3 sm:gap-4">
           <div className="min-w-0">
@@ -753,6 +640,8 @@ function NPKRow({
       whileHover="hover"
     >
       <div className="card-shimmer" />
+      <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
+      <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
       <div className="p-3 sm:p-4 md:p-6">
         <div className="flex flex-col gap-3 sm:gap-4">
           <div className="w-full">
@@ -1025,309 +914,5 @@ function AutoSparklineMulti({ series, times, unit }:{ series:{data:number[]; col
         )}
       </svg>
     </div>
-  )
-}
-
-/* -------------------------- Weekly report -------------------------- */
-function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, thresholds, times, source }:{ tempSeries:number[]; moistSeries:number[]; nSeries:number[]; pSeries:number[]; kSeries:number[]; thresholds: Thresholds; times?: number[]; source: "dummy" | "firebase" }){
-  // Desired points for a week (based on seriesWindow baseline)
-  const weekPoints = seriesWindow * 7
-  const pick = (arr:number[]) => arr.slice(-Math.min(arr.length, weekPoints))
-  const tS = pick(tempSeries)
-  const mS = pick(moistSeries)
-  const nS = pick(nSeries)
-  const pS = pick(pSeries)
-  const kS = pick(kSeries)
-
-  const hasData = tS.length > 0 || mS.length > 0 || nS.length > 0 || pS.length > 0 || kS.length > 0
-
-  const coverageHours = Math.round((Math.max(tS.length, mS.length, nS.length) / seriesWindow) * 24)
-  const coverageDays = Math.max(1, Math.round(coverageHours/24))
-
-  const avg = (arr:number[]) => arr.length ? Number((arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)) : 0
-  const tAvg = avg(tS), mAvg = avg(mS), nAvg = avg(nS), pAvg = avg(pS), kAvg = avg(kS)
-  const tSd = stddev(tS), mSd = stddev(mS), nSd = stddev(nS), pSd = stddev(pS), kSd = stddev(kS)
-
-  // alerts summary: count how many points were outside thresholds in the picked window
-  const countOutOfRange = (arr:number[], lo:number, hi:number) => arr.filter(v => v < lo || v > hi).length
-  const tAlerts = countOutOfRange(tS, thresholds.temperature.min, thresholds.temperature.max)
-  const mAlerts = countOutOfRange(mS, thresholds.moisture.min, thresholds.moisture.max)
-  const nAlerts = countOutOfRange(nS, thresholds.npk.n.min, thresholds.npk.n.max)
-  const pAlerts = countOutOfRange(pS, thresholds.npk.p.min, thresholds.npk.p.max)
-  const kAlerts = countOutOfRange(kS, thresholds.npk.k.min, thresholds.npk.k.max)
-  const totalAlerts = tAlerts + mAlerts + nAlerts + pAlerts + kAlerts
-
-  // stability: coefficient of variation mapped to rating
-  const cv = (sd:number, mean:number) => mean ? sd/Math.abs(mean) : 0
-  const cvs = [cv(tSd,tAvg), cv(mSd,mAvg), cv(nSd,nAvg), cv(pSd,pAvg), cv(kSd,kAvg)].filter(v=>Number.isFinite(v))
-  const avgCv = cvs.length ? (cvs.reduce((a,b)=>a+b,0)/cvs.length) : 0
-
-  const weekEnd = new Date();
-  const weekStart = new Date(Date.now() - 7*24*60*60*1000)
-
-  const exportCsv = () => {
-    try {
-      const tsPick = times ? times.slice(-Math.min(times.length, weekPoints)) : []
-      const picks = [tS, mS, nS, pS, kS]
-      const maxLen = Math.max(...picks.map(a=>a.length), tsPick.length)
-      const get = (arr:number[], len:number, i:number) => {
-        const start = Math.max(0, arr.length - len)
-        return arr[start + i]
-      }
-      const rows: string[] = []
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-      rows.push(`# Weekly report exported: timezone=${tz}`)
-      rows.push('timestamp,temperature,moisture,N,P,K')
-      for (let i=0;i<maxLen;i++){
-        const tsVal = tsPick.length ? get(tsPick, maxLen, i) : undefined
-        const tval = tsVal ? new Date(tsVal).toISOString() : ''
-        const row = [
-          tval,
-          (get(tS, maxLen, i) !== undefined) ? Number(get(tS, maxLen, i)).toFixed(2) : '',
-          (get(mS, maxLen, i) !== undefined) ? Number(get(mS, maxLen, i)).toFixed(2) : '',
-          (get(nS, maxLen, i) !== undefined) ? Math.round(get(nS, maxLen, i)) : '',
-          (get(pS, maxLen, i) !== undefined) ? Math.round(get(pS, maxLen, i)) : '',
-          (get(kS, maxLen, i) !== undefined) ? Math.round(get(kS, maxLen, i)) : '',
-        ].join(',')
-        rows.push(row)
-      }
-      // add BOM so Excel recognises UTF-8
-      const csv = '\uFEFF' + rows.join('\n')
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      const fn = `weekly-report-${(new Date()).toISOString().slice(0,10)}.csv`
-      a.download = fn
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (e) {
-      console.error('CSV export failed', e)
-    }
-  }
-
-  // helper: counts below/above for plain sentences
-  const countBelow = (arr:number[], v:number) => arr.filter(x=>x < v).length
-  const countAbove = (arr:number[], v:number) => arr.filter(x=>x > v).length
-
-  const interpretParam = (avg:number, arr:number[], lo:number, hi:number) => {
-    const below = countBelow(arr, lo)
-    const above = countAbove(arr, hi)
-    if (below === 0 && above === 0) return { status: '✓ Perfect', icon: '✓', reason: 'Always in range', color: '#10b981' }
-    if (below > above && below > 0) return { status: '↓ Too Low', icon: '↓', reason: `${below} readings below`, color: '#06b6d4' }
-    if (above > below && above > 0) return { status: '↑ Too High', icon: '↑', reason: `${above} readings above`, color: '#ef4444' }
-    return { status: '⚠ Unstable', icon: '⚠', reason: `${below + above} out of range`, color: '#f59e0b' }
-  }
-
-  const tInfo = interpretParam(tAvg, tS, thresholds.temperature.min, thresholds.temperature.max)
-  const mInfo = interpretParam(mAvg, mS, thresholds.moisture.min, thresholds.moisture.max)
-  const nInfo = interpretParam(nAvg, nS, thresholds.npk.n.min, thresholds.npk.n.max)
-  const pInfo = interpretParam(pAvg, pS, thresholds.npk.p.min, thresholds.npk.p.max)
-  const kInfo = interpretParam(kAvg, kS, thresholds.npk.k.min, thresholds.npk.k.max)
-
-  // Overall health summary - simple and clear
-  const overallStatus = (() => {
-    if (totalAlerts === 0) return { icon: '🎉', text: 'Perfect Week!', subtext: 'All conditions ideal', color: '#10b981' }
-    if (totalAlerts <= 5) return { icon: '✓', text: 'Great', subtext: `${totalAlerts} minor issue${totalAlerts>1?'s':''}`, color: '#10b981' }
-    if (totalAlerts <= 15) return { icon: '⚠', text: 'Watch', subtext: `${totalAlerts} readings off`, color: '#f59e0b' }
-    return { icon: '⚠', text: 'Needs Attention', subtext: `${totalAlerts} issues detected`, color: '#ef4444' }
-  })()
-
-  // Action items - what user should do
-  const actionItems: string[] = []
-  if (tInfo.status.includes('Low')) actionItems.push('🌡️ Add warmth or insulation')
-  if (tInfo.status.includes('High')) actionItems.push('🌡️ Improve ventilation or shade')
-  if (mInfo.status.includes('Low')) actionItems.push('💧 Add water or moisture')
-  if (mInfo.status.includes('High')) actionItems.push('💧 Reduce watering, improve drainage')
-  if (nInfo.status.includes('Low')) actionItems.push('🌱 Add nitrogen-rich food scraps')
-  if (pInfo.status.includes('Low')) actionItems.push('🌿 Add phosphorus-rich materials')
-  if (kInfo.status.includes('Low')) actionItems.push('🍌 Add potassium-rich materials')
-  if (nInfo.status.includes('High') || pInfo.status.includes('High') || kInfo.status.includes('High')) 
-    actionItems.push('⚖️ Balance nutrients, avoid overfeeding')
-  
-  if (actionItems.length === 0) actionItems.push('✅ Keep doing what you\'re doing!')
-
-  if (!hasData && source === "firebase") {
-    return (
-      <motion.section
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.36 }}
-        className="flex-1 relative mt-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md overflow-hidden text-gray-800 dark:text-gray-100"
-      >
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
-        <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
-
-        <div className="p-4 sm:p-6">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-gray-100">📊 7-Day Summary</h3>
-                <span className="text-xs px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-200">
-                  Source: Firebase
-                </span>
-              </div>
-              <div className="text-sm opacity-70 mt-2">No Firebase data found for the last 7 days.</div>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-white/60 dark:bg-gray-900/40 p-4 text-sm text-gray-700 dark:text-gray-300">
-            Turn on dummy data in Settings to preview the weekly report, or wait for live readings to accumulate.
-          </div>
-        </div>
-      </motion.section>
-    )
-  }
-
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 18 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.36 }}
-      className="flex-1 relative mt-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/60 backdrop-blur-md overflow-hidden text-gray-800 dark:text-gray-100"
-    >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
-      <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
-
-      <div className="p-4 sm:p-6">
-        {/* HEADER - Quick glance status */}
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-gray-100">📊 7-Day Summary</h3>
-              <span className="text-xs px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-200">
-                Source: {source === "dummy" ? "Dummy" : "Firebase"}
-              </span>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: overallStatus.color + '22', border: `2px solid ${overallStatus.color}` }}>
-                <span className="text-lg">{overallStatus.icon}</span>
-                <div className="flex flex-col">
-                  <span className="font-bold text-sm" style={{ color: overallStatus.color }}>{overallStatus.text}</span>
-                  <span className="text-xs opacity-70">{overallStatus.subtext}</span>
-                </div>
-              </div>
-            </div>
-            <div className="text-sm opacity-70 mt-2">{weekStart.toLocaleDateString()} — {weekEnd.toLocaleDateString()}</div>
-          </div>
-
-          <button 
-            onClick={exportCsv} 
-            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors shadow-sm"
-          >
-            💾 Export Data
-          </button>
-        </div>
-
-        {/* KEY METRICS - Visual cards that are easy to scan */}
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Temperature Card */}
-          <div className="rounded-xl border-2 p-4 bg-white/50 dark:bg-gray-900/50" style={{ borderColor: tInfo.color + '55' }}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">🌡️</span>
-                <span className="font-semibold text-gray-900 dark:text-gray-100">Temperature</span>
-              </div>
-              <span className="text-2xl">{tInfo.icon}</span>
-            </div>
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-3xl font-bold tabular-nums">{tAvg.toFixed(1)}</span>
-              <span className="text-lg opacity-70">°C</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="px-2 py-1 rounded-md text-xs font-semibold" style={{ background: tInfo.color, color: '#fff' }}>
-                {tInfo.status}
-              </div>
-              <span className="text-xs opacity-70">{tInfo.reason}</span>
-            </div>
-          </div>
-
-          {/* Moisture Card */}
-          <div className="rounded-xl border-2 p-4 bg-white/50 dark:bg-gray-900/50" style={{ borderColor: mInfo.color + '55' }}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">💧</span>
-                <span className="font-semibold text-gray-900 dark:text-gray-100">Moisture</span>
-              </div>
-              <span className="text-2xl">{mInfo.icon}</span>
-            </div>
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-3xl font-bold tabular-nums">{mAvg.toFixed(1)}</span>
-              <span className="text-lg opacity-70">%</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="px-2 py-1 rounded-md text-xs font-semibold" style={{ background: mInfo.color, color: '#fff' }}>
-                {mInfo.status}
-              </div>
-              <span className="text-xs opacity-70">{mInfo.reason}</span>
-            </div>
-          </div>
-
-          {/* NPK Card */}
-          <div className="rounded-xl border-2 p-4 bg-white/50 dark:bg-gray-900/50 sm:col-span-2 lg:col-span-1" style={{ borderColor: '#8b5cf6' + '55' }}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">🌿</span>
-                <span className="font-semibold text-gray-900 dark:text-gray-100">Nutrients (NPK)</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="text-center">
-                <div className="text-xs opacity-70 mb-1">Nitrogen</div>
-                <div className="text-2xl font-bold tabular-nums">{Math.round(nAvg)}</div>
-                <div className="text-lg mt-1">{nInfo.icon}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xs opacity-70 mb-1">Phosphorus</div>
-                <div className="text-2xl font-bold tabular-nums">{Math.round(pAvg)}</div>
-                <div className="text-lg mt-1">{pInfo.icon}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xs opacity-70 mb-1">Potassium</div>
-                <div className="text-2xl font-bold tabular-nums">{Math.round(kAvg)}</div>
-                <div className="text-lg mt-1">{kInfo.icon}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* WHAT TO DO - Action items */}
-        {actionItems.length > 0 && (
-          <div className="mt-6 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-xl">💡</span>
-              <h4 className="font-semibold text-gray-900 dark:text-gray-100">What You Should Do</h4>
-            </div>
-            <div className="space-y-2">
-              {actionItems.map((item, i) => (
-                <div key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
-                  <span className="text-indigo-600 dark:text-indigo-400 font-bold">•</span>
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* STABILITY INDICATOR */}
-        <div className="mt-6 flex items-center justify-between p-4 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">📈</span>
-            <div>
-              <div className="font-semibold text-gray-900 dark:text-gray-100">Condition Stability</div>
-              <div className="text-sm opacity-70">
-                {avgCv < 0.12 ? 'Very stable conditions — keep current routine' : avgCv < 0.25 ? 'Some variation — monitor closely' : 'High variation — check for issues'}
-              </div>
-            </div>
-          </div>
-          <div className="px-4 py-2 rounded-lg font-bold text-lg" style={{ 
-            background: avgCv < 0.12 ? '#10b98122' : avgCv < 0.25 ? '#f59e0b22' : '#ef444422',
-            color: avgCv < 0.12 ? '#10b981' : avgCv < 0.25 ? '#f59e0b' : '#ef4444'
-          }}>
-            {avgCv < 0.12 ? 'Stable' : avgCv < 0.25 ? 'Moderate' : 'Variable'}
-          </div>
-        </div>
-      </div>
-    </motion.section>
   )
 }

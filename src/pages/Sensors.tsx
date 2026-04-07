@@ -15,7 +15,7 @@ import {
 } from "firebase/firestore"
 import { db } from "../lib/firebase"
 import { motion, AnimatePresence, easeOut } from "framer-motion"
-import { computeTrend, formatValue, movingAverage, stddev, detectAnomalies, setTrendSettings, getTrendSettings, pearsonCorrelation, rateOfChangePerHour, timeToTarget, stabilityScore, moistureDeficit, cumulativeDegreeHours, sensorHealthMetrics } from "../lib/trend"
+import { computeTrend, formatValue, movingAverage, stddev, detectAnomalies, pearsonCorrelation, rateOfChangePerHour, timeToTarget, stabilityScore, moistureDeficit, cumulativeDegreeHours, sensorHealthMetrics } from "../lib/trend"
 import HelpTip from "../components/HelpTip"
 import { getDummyDataEnabled, onDummyDataChange } from "../lib/dummyData"
 
@@ -222,9 +222,6 @@ export default function Sensors() {
 
   const [range, setRange] = React.useState<RangeKey>("live")
   const { samples, mode } = useSensorHistory(range, DEVICE_ID, dummyEnabled)
-  const [showSettings, setShowSettings] = React.useState(false)
-  const [trendSettingsState, setTrendSettingsState] = React.useState(() => getTrendSettings())
-  const [settingsVersion, setSettingsVersion] = React.useState(0)
 
   const thresholds: Thresholds = React.useMemo(() => {
     try {
@@ -408,7 +405,7 @@ export default function Sensors() {
       console.warn('correlation calc failed', e)
     }
     return list
-  }, [sTemp, sMoist, sN, sP, sK, settingsVersion])
+  }, [sTemp, sMoist, sN, sP, sK])
 
   function helpTextForInsight(text: string){
     const t = text.toLowerCase()
@@ -453,14 +450,6 @@ export default function Sensors() {
             >
               {mode === "firebase" ? "LIVE • Firebase" : "SIM"}
             </span>
-            <button
-              onClick={() => setShowSettings(s => !s)}
-              className="ml-2 px-2 py-0.5 rounded-md text-xs bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200"
-              aria-expanded={showSettings}
-            >
-              Settings
-            </button>
-            
           </div>
           <p className="text-xs opacity-70 italic">
             {range === "live" ? "Last 30 mins" : `Range: ${range}`}
@@ -475,37 +464,6 @@ export default function Sensors() {
                   : "N/A"
               }`}
         </p>
-        {showSettings && (
-          <div className="mt-3 p-3 border rounded-lg bg-white/60 dark:bg-gray-800/40">
-            <h4 className="text-sm font-semibold mb-2">Trend settings</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <label className="text-xs">
-                Slope norm threshold
-                <input type="number" step="0.1" value={String(trendSettingsState.slopeNormThreshold ?? 0.6)}
-                  onChange={(e)=> setTrendSettingsState(s=>({...s, slopeNormThreshold: Number(e.target.value)}))}
-                  className="mt-1 w-full px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 text-sm" />
-              </label>
-              <label className="text-xs">
-                Percent change threshold
-                <input type="number" step="0.1" value={String(trendSettingsState.pctThreshold ?? 3)}
-                  onChange={(e)=> setTrendSettingsState(s=>({...s, pctThreshold: Number(e.target.value)}))}
-                  className="mt-1 w-full px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 text-sm" />
-              </label>
-              <label className="text-xs">
-                Slight change threshold
-                <input type="number" step="0.1" value={String(trendSettingsState.slightPct ?? 1.5)}
-                  onChange={(e)=> setTrendSettingsState(s=>({...s, slightPct: Number(e.target.value)}))}
-                  className="mt-1 w-full px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 text-sm" />
-              </label>
-            </div>
-            <div className="mt-3 flex gap-2">
-              <button className="px-3 py-1 rounded bg-indigo-600 text-white text-sm"
-                onClick={()=>{ setTrendSettings(trendSettingsState); setSettingsVersion(v=>v+1); setShowSettings(false)}}>Save</button>
-              <button className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-sm"
-                onClick={()=>{ setTrendSettingsState(getTrendSettings()); setShowSettings(false)}}>Cancel</button>
-            </div>
-          </div>
-        )}
       </motion.section>
 
       {/* Range Buttons */}

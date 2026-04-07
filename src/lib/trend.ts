@@ -5,14 +5,14 @@ type TrendSettings = {
   slightPct?: number
 }
 
-const TREND_SETTINGS_KEY = 'tt_trend_settings'
+const DEFAULT_TREND_SETTINGS: Required<TrendSettings> = {
+  slopeNormThreshold: 0.6,
+  pctThreshold: 3,
+  slightPct: 1.5,
+}
 
 export function getTrendSettings(): TrendSettings {
-  try {
-    const raw = localStorage.getItem(TREND_SETTINGS_KEY)
-    if (raw) return JSON.parse(raw)
-  } catch {}
-  return { slopeNormThreshold: 0.6, pctThreshold: 3, slightPct: 1.5 }
+  return { ...DEFAULT_TREND_SETTINGS }
 }
 
 export function computeTrend(arr: number[], times?: number[]) {
@@ -89,11 +89,7 @@ export function formatValue(v: number, unit?: string) {
   return `${Number.isInteger(v) ? v : v.toFixed(1)}${unit}`
 }
 
-export function setTrendSettings(s: TrendSettings) {
-  try { localStorage.setItem(TREND_SETTINGS_KEY, JSON.stringify(s)) } catch {}
-}
-
-export default { computeTrend, formatValue, setTrendSettings }
+export default { computeTrend, formatValue }
 
 export function movingAverage(arr:number[], windowSize=5){
   if (!arr.length) return []

@@ -26,6 +26,54 @@ interface AlertLog {
   lastAlertSent: admin.firestore.Timestamp;
 }
 
+type Thresholds = typeof DEFAULT_THRESHOLDS;
+
+function toFiniteNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function getThresholds(db: admin.firestore.Firestore): Promise<Thresholds> {
+  try {
+    const cfgSnap = await db.collection('alert_configs').doc('default').get();
+    if (!cfgSnap.exists) return DEFAULT_THRESHOLDS;
+
+    const data = cfgSnap.data() as any;
+    const t = data?.thresholds;
+    if (!t) return DEFAULT_THRESHOLDS;
+
+    const merged: Thresholds = {
+      temperature: {
+        min: toFiniteNumber(t?.temperature?.min) ?? DEFAULT_THRESHOLDS.temperature.min,
+        max: toFiniteNumber(t?.temperature?.max) ?? DEFAULT_THRESHOLDS.temperature.max,
+      },
+      moisture: {
+        min: toFiniteNumber(t?.moisture?.min) ?? DEFAULT_THRESHOLDS.moisture.min,
+        max: toFiniteNumber(t?.moisture?.max) ?? DEFAULT_THRESHOLDS.moisture.max,
+      },
+      npk: {
+        n: {
+          min: toFiniteNumber(t?.n?.min) ?? DEFAULT_THRESHOLDS.npk.n.min,
+          max: toFiniteNumber(t?.n?.max) ?? DEFAULT_THRESHOLDS.npk.n.max,
+        },
+        p: {
+          min: toFiniteNumber(t?.p?.min) ?? DEFAULT_THRESHOLDS.npk.p.min,
+          max: toFiniteNumber(t?.p?.max) ?? DEFAULT_THRESHOLDS.npk.p.max,
+        },
+        k: {
+          min: toFiniteNumber(t?.k?.min) ?? DEFAULT_THRESHOLDS.npk.k.min,
+          max: toFiniteNumber(t?.k?.max) ?? DEFAULT_THRESHOLDS.npk.k.max,
+        },
+      },
+    };
+
+    return merged;
+  } catch (error) {
+    console.warn('Failed to load thresholds from alert_configs/default, using defaults', error);
+    return DEFAULT_THRESHOLDS;
+  }
+}
+
 export async function checkThresholdAlerts(sensorData: any) {
   console.log('Checking thresholds...');
   
@@ -45,9 +93,8 @@ export async function checkThresholdAlerts(sensorData: any) {
       return;
     }
     
-    // Get user thresholds from localStorage (stored in Firestore by dashboard)
-    // For now, use defaults. In production, you'd fetch from a user_settings collection
-    const thresholds = DEFAULT_THRESHOLDS;
+    // Read user-configured thresholds saved by the dashboard to Firestore.
+    const thresholds = await getThresholds(db);
     
     // Check each parameter
     const alerts: Array<{
@@ -91,35 +138,8 @@ export async function checkThresholdAlerts(sensorData: any) {
       });
     }
     
-    // Nitrogen
-    if (n < thresholds.npk.n.min || n > thresholds.npk.n.max) {
-      alerts.push({
-        parameter: 'Nitrogen (N)',
-        value: Math.round(n),
-        threshold: `${thresholds.npk.n.min}-${thresholds.npk.n.max} ppm`,
-        status: n < thresholds.npk.n.min ? 'low' : 'high',
-      });
-    }
-    
-    // Phosphorus
-    if (p < thresholds.npk.p.min || p > thresholds.npk.p.max) {
-      alerts.push({
-        parameter: 'Phosphorus (P)',
-        value: Math.round(p),
-        threshold: `${thresholds.npk.p.min}-${thresholds.npk.p.max} ppm`,
-        status: p < thresholds.npk.p.min ? 'low' : 'high',
-      });
-    }
-    
-    // Potassium
-    if (k < thresholds.npk.k.min || k > thresholds.npk.k.max) {
-      alerts.push({
-        parameter: 'Potassium (K)',
-        value: Math.round(k),
-        threshold: `${thresholds.npk.k.min}-${thresholds.npk.k.max} ppm`,
-        status: k < thresholds.npk.k.min ? 'low' : 'high',
-      });
-    }
+    // Real-time threshold alerts intentionally exclude N/P/K.
+    // NPK conditions are reviewed in scheduled summary emails.
     
     if (alerts.length === 0) {
       console.log('All parameters within range');

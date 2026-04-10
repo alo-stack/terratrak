@@ -64,7 +64,7 @@ export function deviceOfflineTemplate(lastSeen: string, downMinutes: number): st
         </ul>
       </div>
       
-      <a href="https://terratrak.vercel.app/" class="button">Check Dashboard</a>
+      <a href="https://terratrak.vercel.app/" class="button">View Dashboard</a>
     </div>
     
     <div class="footer">
@@ -195,7 +195,7 @@ export function thresholdAlertTemplate(alerts: Array<{parameter: string; value: 
         </ul>
       </div>
       
-      <a href="https://terratrak.vercel.app/" class="button">View Live Data</a>
+      <a href="https://terratrak.vercel.app/" class="button">View Dashboard</a>
     </div>
     
     <div class="footer">
@@ -314,7 +314,7 @@ export function dailySummaryTemplate(summary: {
         </ul>
       </div>
       
-      <a href="https://terratrak.vercel.app/" class="button">View Full Dashboard</a>
+      <a href="https://terratrak.vercel.app/" class="button">View Dashboard</a>
     </div>
     
     <div class="footer">

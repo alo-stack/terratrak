@@ -83,10 +83,10 @@ export default function ThemeToggle() {
       className={[
         "toggle-btn grid place-items-center transition-all duration-200",
         "touch-manipulation",
-        "w-10 h-10 md:w-8 md:h-8 rounded-full",
+        "w-9 h-9 md:w-8 md:h-8 rounded-full",
         active
-          ? "bg-emerald-500/20 dark:bg-emerald-500/15 shadow-inner scale-105"
-          : "hover:bg-black/[0.12] dark:hover:bg-white/[0.20] active:bg-black/20 dark:active:bg-white/25 active:scale-95"
+          ? "bg-emerald-500/25 dark:bg-emerald-500/15 shadow-inner scale-105"
+          : "hover:bg-black/[0.16] dark:hover:bg-white/[0.20] active:bg-black/22 dark:active:bg-white/25 active:scale-95"
       ].join(" ")}
     >
       <span className="sr-only">{label}</span>
@@ -100,11 +100,11 @@ export default function ThemeToggle() {
         // horizontal on mobile, vertical on md+
         "toggle-capsule flex md:flex-col items-center gap-1 md:gap-1.5",
         // sizing
-        "md:w-12 md:py-1.5 md:rounded-2xl w-auto px-2 py-1.5 rounded-full",
+        "md:w-12 md:py-1.5 md:rounded-2xl w-auto px-1.5 py-1 rounded-full",
         // visuals
-        "bg-white/35 dark:bg-zinc-900/45 backdrop-blur",
-        "border border-white/50 dark:border-white/35",
-        "shadow-[0_4px_14px_rgba(0,0,0,0.12)] dark:shadow-[0_6px_18px_rgba(0,0,0,0.35)]",
+        "bg-white/70 dark:bg-zinc-900/45 backdrop-blur",
+        "border border-slate-300/70 dark:border-white/35",
+        "shadow-[0_6px_16px_rgba(0,0,0,0.16)] dark:shadow-[0_6px_18px_rgba(0,0,0,0.35)]",
         sweeping ? "toggle-sweep" : ""
       ].join(" ")}
       tabIndex={-1}
@@ -115,10 +115,10 @@ export default function ThemeToggle() {
         <Icon
           name="moon"
           className={[
-            "w-5 h-5 md:w-4 md:h-4 transition-all duration-300",
+            "w-4 h-4 md:w-4 md:h-4 transition-all duration-300",
             dark
               ? "text-gray-100 drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] scale-110"
-              : "text-gray-600 dark:text-gray-300",
+              : "text-gray-800 dark:text-gray-300",
             popping === "moon" ? "icon-pop" : ""
           ].join(" ")}
         />
@@ -129,10 +129,10 @@ export default function ThemeToggle() {
         <Icon
           name="sun"
           className={[
-            "w-5 h-5 md:w-4 md:h-4 transition-all duration-300",
+            "w-4 h-4 md:w-4 md:h-4 transition-all duration-300",
             !dark
               ? "text-yellow-500 drop-shadow-[0_0_10px_rgba(255,200,0,0.8)] scale-110"
-              : "text-gray-600 dark:text-gray-300",
+              : "text-gray-800 dark:text-gray-300",
             popping === "sun" ? "icon-pop" : ""
           ].join(" ")}
         />

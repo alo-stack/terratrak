@@ -1,7 +1,7 @@
 // Overview.tsx
 import React from "react"
 import { Link } from "react-router-dom"
-import { collection, doc, onSnapshot, orderBy, query, Timestamp, where, limit as qlimit } from "firebase/firestore"
+import { collection, doc, onSnapshot, orderBy, query, limit as qlimit } from "firebase/firestore"
 import { db } from "../lib/firebase"   // your firebase config
 import { motion, AnimatePresence } from "framer-motion"
 import { computeTrend, formatValue, movingAverage, stddev, detectAnomalies, pearsonCorrelation } from "../lib/trend"
@@ -76,6 +76,11 @@ function useLiveSeries(dummyEnabled: boolean) {
   const [n, setN]         = React.useState<number[]>([])
   const [p, setP]         = React.useState<number[]>([])
   const [k, setK]         = React.useState<number[]>([])
+  const [latestTemp, setLatestTemp] = React.useState<number | null>(null)
+  const [latestMoist, setLatestMoist] = React.useState<number | null>(null)
+  const [latestN, setLatestN] = React.useState<number | null>(null)
+  const [latestP, setLatestP] = React.useState<number | null>(null)
+  const [latestK, setLatestK] = React.useState<number | null>(null)
   const [tsArr, setTsArr] = React.useState<number[]>([])
   const [mode, setMode]   = React.useState<"firebase"|"sim">(dummyEnabled ? "sim" : "firebase")
   const [lastUpdate, setLastUpdate] = React.useState<number|null>(null)
@@ -102,6 +107,11 @@ function useLiveSeries(dummyEnabled: boolean) {
     const now = Date.now()
     for (let i=0;i<seriesWindow;i++) ts.push(now - (seriesWindow - i) * 9000)
     setTemp(t); setMoist(m); setN(ns); setP(ps); setK(ks); setTsArr(ts)
+    setLatestTemp(t.at(-1) ?? null)
+    setLatestMoist(m.at(-1) ?? null)
+    setLatestN(ns.at(-1) ?? null)
+    setLatestP(ps.at(-1) ?? null)
+    setLatestK(ks.at(-1) ?? null)
   }, [dummyEnabled, temp.length])
 
   // attach to Firestore `/sensor_readings/latest`; if it never yields valid data, keep SIM ticking
@@ -123,6 +133,11 @@ function useLiveSeries(dummyEnabled: boolean) {
         setP(prev => append(prev, Math.round(pv)))
         setK(prev => append(prev, Math.round(kv)))
         setTsArr(prev => append(prev, ts))
+        setLatestTemp(Number(t.toFixed(1)))
+        setLatestMoist(Number(m.toFixed(1)))
+        setLatestN(Math.round(nv))
+        setLatestP(Math.round(pv))
+        setLatestK(Math.round(kv))
       }, 9000) as unknown as number
     }
 
@@ -140,15 +155,18 @@ function useLiveSeries(dummyEnabled: boolean) {
     setN([])
     setP([])
     setK([])
+    setLatestTemp(null)
+    setLatestMoist(null)
+    setLatestN(null)
+    setLatestP(null)
+    setLatestK(null)
     setTsArr([])
 
-    const cutoffDate = new Date(Date.now() - 3 * 60 * 60 * 1000)
     const ref = collection(db, "sensor_readings", DEVICE_ID, "readings")
     const q = query(
       ref,
-      where("updatedAt", ">=", Timestamp.fromDate(cutoffDate)),
-      orderBy("updatedAt", "asc"),
-      qlimit(2000)
+      orderBy("updatedAt", "desc"),
+      qlimit(1)
     )
 
     const unsub = onSnapshot(
@@ -164,6 +182,16 @@ function useLiveSeries(dummyEnabled: boolean) {
               n: Number(x.npk?.n),
               p: Number(x.npk?.p),
               k: Number(x.npk?.k),
+              tempArray: Array.isArray(x.tempArray)
+                ? x.tempArray
+                    .map((v: any) => Number(v))
+                    .filter((v: number) => Number.isFinite(v) && v > -127)
+                : [],
+              moistureArray: Array.isArray(x.moistureArray)
+                ? x.moistureArray
+                    .map((v: any) => Number(v))
+                    .filter((v: number) => Number.isFinite(v) && v >= 0 && v <= 100)
+                : [],
             }
           })
           .filter((r) => [r.temp, r.moist, r.n, r.p, r.k].every(Number.isFinite))
@@ -174,16 +202,27 @@ function useLiveSeries(dummyEnabled: boolean) {
           setN([])
           setP([])
           setK([])
+          setLatestTemp(null)
+          setLatestMoist(null)
+          setLatestN(null)
+          setLatestP(null)
+          setLatestK(null)
           setTsArr([])
           return
         }
 
-        setTemp(rows.map((r) => r.temp))
-        setMoist(rows.map((r) => r.moist))
-        setN(rows.map((r) => r.n))
-        setP(rows.map((r) => r.p))
-        setK(rows.map((r) => r.k))
-        setTsArr(rows.map((r) => r.ts))
+        const latest = rows[rows.length - 1]
+        setTemp(latest.tempArray.length ? latest.tempArray : [latest.temp])
+        setMoist(latest.moistureArray.length ? latest.moistureArray : [latest.moist])
+        setN([latest.n])
+        setP([latest.p])
+        setK([latest.k])
+        setLatestTemp(latest.temp)
+        setLatestMoist(latest.moist)
+        setLatestN(latest.n)
+        setLatestP(latest.p)
+        setLatestK(latest.k)
+        setTsArr([latest.ts])
       },
       () => {
         setMode("firebase")
@@ -214,7 +253,7 @@ function useLiveSeries(dummyEnabled: boolean) {
     }
   }, [dummyEnabled])
 
-  return { temp, moist, n, p, k, ts: tsArr, mode, lastUpdate }
+  return { temp, moist, n, p, k, latestTemp, latestMoist, latestN, latestP, latestK, ts: tsArr, mode, lastUpdate }
 }
 
 
@@ -248,36 +287,20 @@ export default function Overview() {
     }
   }, [])
 
-  const { temp, moist, n, p, k, ts, mode, lastUpdate } = useLiveSeries(dummyEnabled)
+  const { temp, moist, n, p, k, latestTemp, latestMoist, latestN, latestP, latestK, ts, mode, lastUpdate } = useLiveSeries(dummyEnabled)
 
-  const THREE_HOURS_MS = 3 * 60 * 60 * 1000
-  const cutoff3h = Date.now() - THREE_HOURS_MS
-  const filterByTime = (arr: number[], times: number[]) => {
-    if (!times.length) return arr
-    const out: number[] = []
-    for (let i = 0; i < arr.length && i < times.length; i++) {
-      if (times[i] >= cutoff3h) out.push(arr[i])
-    }
-    return out
-  }
-  const temp3h = filterByTime(temp, ts)
-  const moist3h = filterByTime(moist, ts)
-  const n3h = filterByTime(n, ts)
-  const p3h = filterByTime(p, ts)
-  const k3h = filterByTime(k, ts)
-  const ts3h = filterByTime(ts, ts)
-  const hasOverviewData = temp3h.length > 0 || moist3h.length > 0 || n3h.length > 0 || p3h.length > 0 || k3h.length > 0
+  const hasOverviewData = temp.length > 0 || moist.length > 0 || n.length > 0 || p.length > 0 || k.length > 0
 
   const safeMin = (arr: number[]) => (arr.length ? Math.min(...arr) : null)
   const safeMax = (arr: number[]) => (arr.length ? Math.max(...arr) : null)
 
   const summary = {
-    temp:  { avg: temp3h.length > 0 ? temp3h[temp3h.length - 1] : null, min: safeMin(temp3h), max: safeMax(temp3h) },
-    moist: { avg: moist3h.length > 0 ? moist3h[moist3h.length - 1] : null, min: safeMin(moist3h), max: safeMax(moist3h) },
+    temp:  { avg: latestTemp, min: safeMin(temp), max: safeMax(temp) },
+    moist: { avg: latestMoist, min: safeMin(moist), max: safeMax(moist) },
     npk: {
-      n: { avg: n3h.length > 0 ? n3h[n3h.length - 1] : null },
-      p: { avg: p3h.length > 0 ? p3h[p3h.length - 1] : null },
-      k: { avg: k3h.length > 0 ? k3h[k3h.length - 1] : null },
+      n: { avg: latestN },
+      p: { avg: latestP },
+      k: { avg: latestK },
     },
   }
 
@@ -434,8 +457,8 @@ export default function Overview() {
             status={sTemp}
             gradient="from-emerald-400/35 via-emerald-400/10 to-emerald-400/0"
             sparkColor="#10b981"
-            series={temp3h}
-            times={ts3h}
+            series={temp}
+            times={ts}
           />
           <SummaryRow
             title="Moisture"
@@ -444,16 +467,16 @@ export default function Overview() {
             status={sMoist}
             gradient="from-sky-400/35 via-sky-400/10 to-sky-400/0"
             sparkColor="#38bdf8"
-            series={moist3h}
-            times={ts3h}
+            series={moist}
+            times={ts}
           />
           <NPKRow
             data={summary.npk}
             status={npkWorst}
             statuses={{ n:sN, p:sP, k:sK }}
             thresholds={thresholds.npk}
-            series={{ n: n3h, p: p3h, k: k3h }}
-            times={ts3h}
+            series={{ n, p, k }}
+            times={ts}
           />
         </section>
 

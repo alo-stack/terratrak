@@ -48,6 +48,23 @@ export const thresholdAlertCheck = onDocumentWritten(
 );
 
 /**
+ * Firestore trigger: Check thresholds for per-device reading writes
+ * Triggers on writes to sensor_readings/{deviceId}/readings/{readingId}
+ */
+export const thresholdAlertCheckFromReadings = onDocumentWritten(
+  {
+    document: 'sensor_readings/{deviceId}/readings/{readingId}',
+    memory: '256MiB',
+  },
+  async (event) => {
+    const newData = event.data?.after.data();
+    if (!newData) return;
+
+    await checkThresholdAlerts(newData);
+  }
+);
+
+/**
  * Scheduled function: Send daily summary email
  * Runs every day at 6:00 AM and 6:00 PM
  */

@@ -43,15 +43,48 @@ const loadEnvFromYaml = (): Record<string, string> => {
   return {};
 };
 
+const loadCloudRuntimeConfig = (): Record<string, any> => {
+  try {
+    const raw = process.env.CLOUD_RUNTIME_CONFIG;
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const pickFirst = (...values: Array<unknown>): string | undefined => {
+  for (const v of values) {
+    if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+  }
+  return undefined;
+};
+
 const getEmailConfig = () => {
   const yamlEnv = loadEnvFromYaml();
-  const email = process.env.GMAIL_EMAIL || yamlEnv.GMAIL_EMAIL;
-  const password = process.env.GMAIL_PASSWORD || yamlEnv.GMAIL_PASSWORD;
-  const recipient =
-    process.env.RECIPIENT_EMAIL ||
-    yamlEnv.RECIPIENT_EMAIL ||
-    process.env.GMAIL_EMAIL ||
-    yamlEnv.GMAIL_EMAIL;
+  const cloudCfg = loadCloudRuntimeConfig();
+
+  const email = pickFirst(
+    process.env.GMAIL_EMAIL,
+    yamlEnv.GMAIL_EMAIL,
+    cloudCfg?.gmail?.email
+  );
+
+  const password = pickFirst(
+    process.env.GMAIL_PASSWORD,
+    yamlEnv.GMAIL_PASSWORD,
+    cloudCfg?.gmail?.password
+  );
+
+  const recipient = pickFirst(
+    process.env.RECIPIENT_EMAIL,
+    yamlEnv.RECIPIENT_EMAIL,
+    cloudCfg?.notification?.recipient,
+    process.env.GMAIL_EMAIL,
+    yamlEnv.GMAIL_EMAIL,
+    cloudCfg?.gmail?.email
+  );
 
   return { email, password, recipient };
 };

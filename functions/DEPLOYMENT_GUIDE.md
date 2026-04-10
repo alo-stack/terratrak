@@ -2,7 +2,7 @@
 
 ## 🚀 Quick Start (15 minutes)
 
-This guide will help you set up email notifications for your TerraTak dashboard.
+This guide will help you set up email notifications for your TerraTrak dashboard.
 
 ---
 
@@ -165,12 +165,12 @@ const ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 ### 1. Device Offline Alert 🔴
 - **When:** ESP32 hasn't sent data for 30+ minutes
-- **Subject:** "🔴 ESP32 Device Offline - TerraTak"
+- **Subject:** "🔴 ESP32 Device Offline - TerraTrak"
 - **Contains:** Last seen time, troubleshooting steps
 
 ### 2. Device Online Alert ✅
 - **When:** ESP32 reconnects after being offline
-- **Subject:** "✅ ESP32 Device Back Online - TerraTak"
+- **Subject:** "✅ ESP32 Device Back Online - TerraTrak"
 - **Contains:** Downtime duration
 
 ### 3. Threshold Alert ⚠️
@@ -181,7 +181,7 @@ const ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 ### 4. Daily Summary 📊
 - **When:** Every day at 8:00 AM
-- **Subject:** "📊 Daily Summary - [Status] - TerraTak"
+- **Subject:** "📊 Daily Summary - [Status] - TerraTrak"
 - **Contains:** 24h averages, trends, alert count, insights
 
 ---

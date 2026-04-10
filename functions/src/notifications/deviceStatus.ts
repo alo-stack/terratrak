@@ -62,7 +62,7 @@ export async function checkDeviceStatus() {
       
       // Send offline alert
       await sendEmail({
-        subject: '🔴 ESP32 Device Offline - TerraTak',
+        subject: '🔴 ESP32 Device Offline - TerraTrak',
         html: deviceOfflineTemplate(
           lastUpdate.toDate().toLocaleString(),
           downMinutes
@@ -87,7 +87,7 @@ export async function checkDeviceStatus() {
       
       // Send online alert
       await sendEmail({
-        subject: '✅ ESP32 Device Back Online - TerraTak',
+        subject: '✅ ESP32 Device Back Online - TerraTrak',
         html: deviceOnlineTemplate(downMinutes),
       });
       

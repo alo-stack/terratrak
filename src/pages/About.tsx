@@ -68,15 +68,15 @@ export default function About() {
         <div className="mt-4 rounded-2xl border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--card))] p-4">
           <h3 className="text-sm font-semibold mb-2">Data analyses on this dashboard</h3>
           <div className="text-xs text-gray-700 dark:text-gray-200 space-y-2">
-            <div><strong>Moving average:</strong> smooths noisy sensor readings so you can see the real direction of temperature, moisture, and NPK.</div>
-            <div><strong>Standard deviation (SD):</strong> shows how steady a metric is. Higher SD means readings are bouncing around more.</div>
-            <div><strong>Anomaly detection:</strong> highlights unusual spikes or drops that could be sensor glitches or sudden changes in the pile.</div>
-            <div><strong>Trend (change over time):</strong> shows whether a metric is rising, falling, or stable, plus the percent change.</div>
-            <div><strong>Correlation:</strong> points out when two metrics move together (like moisture and nutrients), so you can see linked behavior.</div>
-            <div><strong>Stability score:</strong> a single stability check across key metrics to show if conditions are consistent.</div>
-            <div><strong>NPK analytics:</strong> separates N, P, K trends and flags imbalances to guide feeding adjustments.</div>
-            <div><strong>Weekly summary:</strong> a 7-day health check with averages and out-of-range counts to spot issues early.</div>
-            <div><strong>CSV export:</strong> download the weekly data to review or share offline.</div>
+            <div><strong>Moving average:</strong> averages the last few readings to smooth noise and show the true direction of temperature, moisture, and NPK.</div>
+            <div><strong>Standard deviation (SD):</strong> shows how much readings swing around the average. Low SD means steady; high SD means unstable.</div>
+            <div><strong>Anomaly detection:</strong> flags unusual spikes or drops that are far from normal, so sudden issues are easier to spot.</div>
+            <div><strong>Trend (change over time):</strong> combines slope and percent change to label each metric as rising, falling, or stable.</div>
+            <div><strong>Correlation:</strong> checks whether two metrics move together (for example moisture and nutrients), which helps reveal linked behavior.</div>
+            <div><strong>Stability score:</strong> combines variability across key metrics into one stability index. Higher score means more consistent conditions.</div>
+            <div><strong>NPK analytics:</strong> breaks N, P, and K into separate trends, SD, and anomaly counts to highlight nutrient imbalance early.</div>
+            <div><strong>Weekly summary:</strong> gives a 7-day snapshot with averages, out-of-range counts, and quick guidance for corrective actions.</div>
+            <div><strong>CSV export:</strong> downloads the weekly table (timestamp, temperature, moisture, N, P, K) for records or sharing.</div>
           </div>
         </div>
       </section>

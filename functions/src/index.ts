@@ -1,5 +1,5 @@
 /**
- * Cloud Functions for TerraTak Vermicomposting Dashboard
+ * Cloud Functions for TerraTrak Vermicomposting Dashboard
  * Email notifications for device status, thresholds, and daily summaries
  */
 
@@ -72,8 +72,8 @@ export const testEmail = onRequest(
   async (req, res) => {
     try {
       await sendEmail({
-        subject: 'TerraTak Test Email',
-        html: '<h2>TerraTak Test Email</h2><p>If you received this, email sending works.</p>',
+        subject: 'TerraTrak Test Email',
+        html: '<h2>TerraTrak Test Email</h2><p>If you received this, email sending works.</p>',
       });
       res.status(200).send('Test email sent.');
     } catch (error) {

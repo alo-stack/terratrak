@@ -57,7 +57,7 @@ export async function sendDailySummary() {
       console.log('No data in last 24 hours');
       // Still send an email saying no data
       await sendEmail({
-        subject: '📊 Daily Summary - No Data - TerraTak',
+        subject: '📊 Daily Summary - No Data - TerraTrak',
         html: `
           <p>No sensor data was received in the last 24 hours.</p>
           <p>Please check if your ESP32 is online and transmitting data.</p>
@@ -156,7 +156,7 @@ export async function sendDailySummary() {
     });
     
     await sendEmail({
-      subject: `📊 Daily Summary - ${status} - TerraTak`,
+      subject: `📊 Daily Summary - ${status} - TerraTrak`,
       html: dailySummaryTemplate({
         date: today,
         status,

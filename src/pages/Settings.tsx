@@ -376,7 +376,7 @@ export default function Settings() {
           <ThresholdRow
             label="Temperature"
             unit="°C"
-            hint="Typical compost core: 40–70°C. Below 40°C usually means slow activity."
+            hint="Guideline range: 25–35°C. Keep values within this band for stable activity."
             tooltip="We monitor compost core temp. Too hot can harm worms; too low slows decomposition."
             min={thresholds.temperature.min}
             max={thresholds.temperature.max}
@@ -387,7 +387,7 @@ export default function Settings() {
           <ThresholdRow
             label="Moisture"
             unit="%"
-            hint="Ideal: 40–80% relative moisture (like a wrung-out sponge)."
+            hint="Guideline range: 40–80% relative moisture (like a wrung-out sponge)."
             tooltip="Moisture keeps worms active and prevents overheating. Above ~80% can cause anaerobic zones."
             min={thresholds.moisture.min}
             max={thresholds.moisture.max}
@@ -398,7 +398,7 @@ export default function Settings() {
           <ThresholdRow
             label="Nitrogen (N)"
             unit="ppm"
-            hint="Higher N indicates fresh greens/manure; too high can heat the bin."
+            hint="Guideline range: 50–100 ppm. Helps indicate balanced nitrogen availability."
             tooltip="We read N from your NPK sensor. Tune bounds to your sensor’s scale and desired feedstock ratio."
             min={thresholds.n.min}
             max={thresholds.n.max}
@@ -408,7 +408,7 @@ export default function Settings() {
           <ThresholdRow
             label="Phosphorus (P)"
             unit="ppm"
-            hint="Important for plant root development; compost P rises with balanced feedstock."
+            hint="Guideline range: 5–15 ppm. Supports root development and compost maturity tracking."
             tooltip="Use this to track nutrient maturity trends. Calibrate with your sensor’s docs."
             min={thresholds.p.min}
             max={thresholds.p.max}
@@ -418,7 +418,7 @@ export default function Settings() {
           <ThresholdRow
             label="Potassium (K)"
             unit="ppm"
-            hint="Supports overall plant vigor. K typically ramps as compost stabilizes."
+            hint="Guideline range: 100–180 ppm. Supports plant vigor and overall nutrient balance."
             tooltip="If K is low while N is high, consider more brown/carbon feedstock."
             min={thresholds.k.min}
             max={thresholds.k.max}
@@ -579,8 +579,8 @@ export default function Settings() {
 
     {/* Lock overlay (glass card + backdrop blur) */}
     {!unlocked && (
-      <div className="absolute inset-0 z-40 flex items-center justify-center px-4">
-        <div className="absolute inset-0 bg-black/24 backdrop-blur-sm" />
+      <div className="fixed inset-0 sm:absolute sm:inset-0 z-40 flex items-start sm:items-center justify-center px-4 pt-24 sm:pt-6 pb-24 sm:pb-6">
+        <div className="fixed inset-0 sm:absolute sm:inset-0 bg-black/24 backdrop-blur-sm" />
         <motion.div
           initial={{ opacity: 0, y: 10, scale: 0.99 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}

@@ -127,7 +127,7 @@ export async function sendEmail(options: {
     }
     
     const mailOptions = {
-      from: `TerraTak Dashboard <${config.email}>`,
+      from: `TerraTrak Dashboard <${config.email}>`,
       to: recipients,
       subject: options.subject,
       html: options.html,

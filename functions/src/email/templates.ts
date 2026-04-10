@@ -64,11 +64,11 @@ export function deviceOfflineTemplate(lastSeen: string, downMinutes: number): st
         </ul>
       </div>
       
-      <a href="https://your-dashboard-url.web.app" class="button">Check Dashboard</a>
+      <a href="https://terratrak.vercel.app/" class="button">Check Dashboard</a>
     </div>
     
     <div class="footer">
-      <p>TerraTak Vermicomposting Dashboard</p>
+      <p>TerraTrak Vermicomposting Dashboard</p>
       <p>You're receiving this because device monitoring is enabled</p>
     </div>
   </div>
@@ -111,11 +111,11 @@ export function deviceOnlineTemplate(downMinutes: number): string {
       
       <p>Your vermicomposting monitoring has resumed. All systems are operational.</p>
       
-      <a href="https://your-dashboard-url.web.app" class="button">View Dashboard</a>
+      <a href="https://terratrak.vercel.app/" class="button">View Dashboard</a>
     </div>
     
     <div class="footer">
-      <p>TerraTak Vermicomposting Dashboard</p>
+      <p>TerraTrak Vermicomposting Dashboard</p>
     </div>
   </div>
 </body>
@@ -195,11 +195,11 @@ export function thresholdAlertTemplate(alerts: Array<{parameter: string; value: 
         </ul>
       </div>
       
-      <a href="https://your-dashboard-url.web.app" class="button">View Live Data</a>
+      <a href="https://terratrak.vercel.app/" class="button">View Live Data</a>
     </div>
     
     <div class="footer">
-      <p>TerraTak Vermicomposting Dashboard</p>
+      <p>TerraTrak Vermicomposting Dashboard</p>
       <p>You're receiving this because threshold monitoring is enabled</p>
     </div>
   </div>
@@ -314,11 +314,11 @@ export function dailySummaryTemplate(summary: {
         </ul>
       </div>
       
-      <a href="https://your-dashboard-url.web.app" class="button">View Full Dashboard</a>
+      <a href="https://terratrak.vercel.app/" class="button">View Full Dashboard</a>
     </div>
     
     <div class="footer">
-      <p>TerraTak Vermicomposting Dashboard</p>
+      <p>TerraTrak Vermicomposting Dashboard</p>
       <p>Daily summary • Delivered every morning at 8:00 AM</p>
     </div>
   </div>

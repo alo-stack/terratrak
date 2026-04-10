@@ -450,26 +450,31 @@ export default function Overview() {
         {/* Summaries + Right column (Harvest + Alerts) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-4 text-gray-800 dark:text-gray-100">
         <section className="lg:col-span-8 space-y-3 md:space-y-4">
-          <SummaryRow
-            title="Temperature"
-            unit="°C"
-            data={summary.temp}
-            status={sTemp}
-            gradient="from-emerald-400/35 via-emerald-400/10 to-emerald-400/0"
-            sparkColor="#10b981"
-            series={temp}
-            times={ts}
-          />
-          <SummaryRow
-            title="Moisture"
-            unit="%"
-            data={summary.moist}
-            status={sMoist}
-            gradient="from-sky-400/35 via-sky-400/10 to-sky-400/0"
-            sparkColor="#38bdf8"
-            series={moist}
-            times={ts}
-          />
+          {/* Temperature & Moisture side by side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+            <SummaryRow
+              title="Temperature"
+              unit="°C"
+              data={summary.temp}
+              status={sTemp}
+              gradient="from-emerald-400/35 via-emerald-400/10 to-emerald-400/0"
+              sparkColor="#10b981"
+              series={temp}
+              times={ts}
+              thresholds={thresholds.temperature}
+            />
+            <SummaryRow
+              title="Moisture"
+              unit="%"
+              data={summary.moist}
+              status={sMoist}
+              gradient="from-sky-400/35 via-sky-400/10 to-sky-400/0"
+              sparkColor="#38bdf8"
+              series={moist}
+              times={ts}
+              thresholds={thresholds.moisture}
+            />
+          </div>
           <NPKRow
             data={summary.npk}
             status={npkWorst}
@@ -566,7 +571,7 @@ export default function Overview() {
 /* ------------------------------ Bits & UI ------------------------------ */
 
 function SummaryRow({
-  title, unit, data, status, gradient, sparkColor, series, times
+  title, unit, data, status, gradient, sparkColor, series, times, thresholds
 }:{
   title: string
   unit: string
@@ -576,59 +581,85 @@ function SummaryRow({
   sparkColor: string
   series: number[]
   times?: number[]
+  thresholds: { min:number; max:number }
 }) {
   const cardVariantLocal = {
     hidden: { opacity: 0, y: 10 },
-    show: { opacity: 1, y: 0, transition: { duration: 0.45 } },
-    hover: { scale: 1.01 }
+    show: { opacity: 1, y: 0, transition: { duration: 0.45 } }
   }
+
+  // Compute trend
+  const s = series.slice(-48)
+  const t = computeTrend(s, times ? times.slice(-48) : undefined)
+  const trend = s.length < 2 ? 'N/A' : t.trend
+  const pctStr = s.length < 2 || !Number.isFinite(t.pct) ? '--' : `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`
+  const avgVal = Number.isFinite(data.avg) ? (data.avg as number) : null
+  const deltaToBoundary = avgVal === null
+    ? null
+    : Math.min(Math.abs(avgVal - thresholds.min), Math.abs(thresholds.max - avgVal))
+  const deltaLabel = avgVal === null ? '--' : `Δ ${deltaToBoundary!.toFixed(1)}${unit}`
+  const deltaColor = avgVal === null
+    ? '#94a3b8'
+    : deltaToBoundary! <= 0.25
+      ? '#ef4444'
+      : deltaToBoundary! <= 1
+        ? '#f59e0b'
+        : '#10b981'
+
   return (
     <motion.section className="card card-live relative overflow-hidden"
       variants={cardVariantLocal}
       initial="hidden"
       animate="show"
-      whileHover="hover"
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] card-shimmer" />
       <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
       <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
-      <div className="p-3 sm:p-4 md:p-6">
-        <div className="flex flex-col gap-3 sm:gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-base sm:text-sm md:text-base font-semibold">{title}</h3>
-              <span className="px-2 py-0.5 rounded-full text-xs sm:text-[11px] font-semibold border whitespace-nowrap"
-                    style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
-                {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
-              </span>
+      <div className="p-3 sm:p-5 md:p-6">
+        {/* Header with title and status */}
+        <div className="flex items-center justify-between gap-3 mb-3 sm:mb-5">
+          <h3 className="text-xs sm:text-sm font-semibold uppercase tracking-wide opacity-85 text-gray-900 dark:text-gray-100">{title}</h3>
+          <span className="px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap"
+                style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
+            {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
+          </span>
+        </div>
+        
+        {/* Primary metric display */}
+        <div className="mb-3 sm:mb-5">
+          <div className="text-2xl sm:text-3xl md:text-4xl font-bold tabular-nums text-gray-900 dark:text-white mb-2 sm:mb-3">
+            {formatValue(Number.isFinite(data.avg) ? (data.avg as number) : NaN, unit)}
+          </div>
+          
+          {/* Secondary metrics: Min/Max on one line */}
+          <div className="flex items-baseline gap-4 sm:gap-6 text-xs sm:text-sm mb-3 sm:mb-4 text-gray-700 dark:text-gray-300">
+            <div>
+              <span className="opacity-60 mr-0.5 sm:mr-1">Min</span>
+              <span className="font-medium">{formatValue(Number.isFinite(data.min) ? (data.min as number) : NaN, unit)}</span>
             </div>
-            <div className="mt-2 grid grid-cols-3 gap-2 sm:gap-3 text-sm sm:text-sm">
-              <KV label="Avg" value={formatValue(Number.isFinite(data.avg) ? (data.avg as number) : NaN, unit)} />
-              <KV label="Min" value={formatValue(Number.isFinite(data.min) ? (data.min as number) : NaN, unit)} />
-              <KV label="Max" value={formatValue(Number.isFinite(data.max) ? (data.max as number) : NaN, unit)} />
+            <div className="w-px h-3 sm:h-4 bg-gray-300 dark:bg-white/10" />
+            <div>
+              <span className="opacity-60 mr-0.5 sm:mr-1">Max</span>
+              <span className="font-medium">{formatValue(Number.isFinite(data.max) ? (data.max as number) : NaN, unit)}</span>
             </div>
           </div>
-          <div className="w-full">
-            <AutoSparkline color={sparkColor} data={series} times={times} unit={unit} />
-            {/* Trend summary and labels (use shared computeTrend & formatting) */}
-            {(() => {
-              const s = series.slice(-48)
-              const t = computeTrend(s, times ? times.slice(-48) : undefined)
-              const trend = s.length < 2 ? 'N/A' : t.trend
-              const pctStr = s.length < 2 || !Number.isFinite(t.pct) ? '--' : `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`
-              const interp = s.length < 2 ? 'No data' : (status === 'alert' ? 'Act now' : status === 'warn' ? 'Watch closely' : (t.trend === 'Rising' ? 'Increasing' : t.trend === 'Falling' ? 'Decreasing' : 'Stable'))
-              return (
-                <div className="mt-3 flex items-center justify-between text-sm text-gray-700 dark:text-gray-300">
-                  <div className="flex items-center gap-3">
-                    <span className="font-medium">Trend:</span>
-                    <span className="tabular-nums">{trend}</span>
-                    <span className="opacity-60">•</span>
-                    <span className="tabular-nums">{pctStr}</span>
-                  </div>
-                  <div className="text-xs opacity-75">{interp}</div>
-                </div>
-              )
-            })()}
+
+          {/* Trend indicator */}
+          <div className="border-t border-gray-300 dark:border-white/5 pt-2 sm:pt-3">
+            <div className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="opacity-70">Trend:</span>
+                <span className="font-medium">{trend}</span>
+                <span className="opacity-60">•</span>
+                <span className="tabular-nums font-medium">{pctStr}</span>
+              </div>
+              <span
+                className="px-2 py-0.5 rounded text-[10px] font-semibold tabular-nums border"
+                style={{ color: deltaColor, borderColor: deltaColor + "55", background: deltaColor + "10" }}
+              >
+                {deltaLabel}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -668,74 +699,68 @@ function NPKRow({
 
   const cardVariantLocal = {
     hidden: { opacity: 0, y: 8 },
-    show: { opacity: 1, y: 0, transition: { duration: 0.45 } },
-    hover: { scale: 1.01 }
+    show: { opacity: 1, y: 0, transition: { duration: 0.45 } }
   }
+
+  // Compute trends for each nutrient
+  const sN = series.n.slice(-48), sP = series.p.slice(-48), sK = series.k.slice(-48)
+  const nT = computeTrend(sN, times ? times.slice(-48) : undefined)
+  const pT = computeTrend(sP, times ? times.slice(-48) : undefined)
+  const kT = computeTrend(sK, times ? times.slice(-48) : undefined)
+  const arrow = (t:any) => t.trend && t.trend.toLowerCase().includes('rise') ? '↑' : t.trend && t.trend.toLowerCase().includes('fall') ? '↓' : '–'
+  const pct = (s:number[], t:any) => s.length < 2 || !Number.isFinite(t.pct) ? '--' : `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`
 
   return (
     <motion.section className="card card-live relative overflow-hidden"
       variants={cardVariantLocal}
       initial="hidden"
       animate="show"
-      whileHover="hover"
     >
       <div className="card-shimmer" />
       <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
       <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
-      <div className="p-3 sm:p-4 md:p-6">
-        <div className="flex flex-col gap-3 sm:gap-4">
-          <div className="w-full">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-base sm:text-sm md:text-base font-semibold">NPK (ppm)</h3>
-              <span className="px-2 py-0.5 rounded-full text-xs sm:text-[11px] font-semibold border whitespace-nowrap"
-                    style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
-                {status === "ok" ? "OK" : "Watch/Alert"}
-              </span>
-            </div>
+      <div className="p-4 sm:p-5 md:p-6">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 mb-5">
+          <h3 className="text-sm font-semibold uppercase tracking-wide opacity-85 text-gray-900 dark:text-gray-100">NPK (ppm)</h3>
+          <span className="px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap"
+                style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
+            {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
+          </span>
+        </div>
 
-            {/* chips */}
-            <div className="mt-2 sm:mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 text-sm sm:text-sm">
-              <NPKChip label="N" color={COLOR_N} status={statuses.n}
-                       val={data.n.avg}
-                       th={thresholds.n} />
-              <NPKChip label="P" color={COLOR_P} status={statuses.p}
-                       val={data.p.avg}
-                       th={thresholds.p} />
-              <NPKChip label="K" color={COLOR_K} status={statuses.k}
-                       val={data.k.avg}
-                       th={thresholds.k} />
+        {/* Three metric chips in a clean row */}
+        <div className="grid grid-cols-3 gap-3 mb-5">
+          <NPKChip label="N" color={COLOR_N} status={statuses.n}
+                   val={data.n.avg}
+                   th={thresholds.n}
+                   trend={nT}
+                   series={sN} />
+          <NPKChip label="P" color={COLOR_P} status={statuses.p}
+                   val={data.p.avg}
+                   th={thresholds.p}
+                   trend={pT}
+                   series={sP} />
+          <NPKChip label="K" color={COLOR_K} status={statuses.k}
+                   val={data.k.avg}
+                   th={thresholds.k}
+                   trend={kT}
+                   series={sK} />
+        </div>
+
+        {/* Trend summary - professional layout */}
+        <div className="space-y-2 text-sm border-t border-gray-300 dark:border-white/5 pt-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-6 text-gray-700 dark:text-gray-300">
+              <div className="flex items-center gap-2"><span style={{color:COLOR_N}} className="w-2 h-2 rounded-full inline-block" /><span className="text-xs opacity-70">N:</span> <span className="tabular-nums font-medium">{arrow(nT)} {pct(sN, nT)}</span></div>
+              <div className="flex items-center gap-2"><span style={{color:COLOR_P}} className="w-2 h-2 rounded-full inline-block" /><span className="text-xs opacity-70">P:</span> <span className="tabular-nums font-medium">{arrow(pT)} {pct(sP, pT)}</span></div>
+              <div className="flex items-center gap-2"><span style={{color:COLOR_K}} className="w-2 h-2 rounded-full inline-block" /><span className="text-xs opacity-70">K:</span> <span className="tabular-nums font-medium">{arrow(kT)} {pct(sK, kT)}</span></div>
             </div>
           </div>
-
-          {/* multi sparkline */}
-          <div className="w-full">
-            <AutoSparklineMulti
-              series={[
-                { data: series.n, color: COLOR_N },
-                { data: series.p, color: COLOR_P },
-                { data: series.k, color: COLOR_K },
-              ]}
-              times={times}
-            />
-            {/* NPK quick-trend summary */}
-            {(() => {
-              const sN = series.n.slice(-48), sP = series.p.slice(-48), sK = series.k.slice(-48)
-              const nT = computeTrend(sN, times ? times.slice(-48) : undefined)
-              const pT = computeTrend(sP, times ? times.slice(-48) : undefined)
-              const kT = computeTrend(sK, times ? times.slice(-48) : undefined)
-              const arrow = (t:any) => t.trend && t.trend.toLowerCase().includes('rise') ? '↑' : t.trend && t.trend.toLowerCase().includes('fall') ? '↓' : '–'
-              const pct = (s:number[], t:any) => s.length < 2 || !Number.isFinite(t.pct) ? '--' : `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`
-              return (
-                <div className="mt-3 flex items-center justify-between text-sm text-gray-700 dark:text-gray-300">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2"><span style={{color:COLOR_N}} className="w-2 h-2 rounded-full inline-block" />N: <span className="tabular-nums">{arrow(nT)} {pct(sN, nT)}</span></div>
-                    <div className="flex items-center gap-2"><span style={{color:COLOR_P}} className="w-2 h-2 rounded-full inline-block" />P: <span className="tabular-nums">{arrow(pT)} {pct(sP, pT)}</span></div>
-                    <div className="flex items-center gap-2"><span style={{color:COLOR_K}} className="w-2 h-2 rounded-full inline-block" />K: <span className="tabular-nums">{arrow(kT)} {pct(sK, kT)}</span></div>
-                  </div>
-                  <div className="text-xs opacity-75">Interpretation: {status === 'ok' ? 'Balanced' : status === 'warn' ? 'Watch balance' : 'Imbalance detected'}</div>
-                </div>
-              )
-            })()}
+          <div className="text-xs opacity-70 pt-1 text-gray-700 dark:text-gray-300">
+            <span className="font-medium" style={{color: statusColor[status]}}>
+              {status === 'ok' ? 'Balanced' : status === 'warn' ? 'Watch balance' : 'Imbalance detected'}
+            </span>
           </div>
         </div>
       </div>
@@ -746,31 +771,35 @@ function NPKRow({
 }
 
 function NPKChip({
-  label, color, status, val, th
+  label, color, status, val, th, trend, series
 }:{
   label:"N"|"P"|"K"; color:string; status: StatusKey;
-  val:number | null; th:{min:number;max:number}
+  val:number | null; th:{min:number;max:number}; trend?:any; series?:number[]
 }) {
+  const trendIndicator = trend && series && series.length > 1 
+    ? trend.trend?.toLowerCase().includes('rise') ? '↑' : trend.trend?.toLowerCase().includes('fall') ? '↓' : '–'
+    : '–'
+  
   return (
-    <motion.div whileHover={{ translateY: -4 }} className="rounded-xl border border-[hsl(var(--border))] dark:border-white/10 p-2 sm:p-3">
-      <div className="flex items-center gap-1.5 sm:gap-2">
-        <span className="inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 rounded-full text-xs sm:text-xs font-bold flex-shrink-0"
-              style={{background: color+"22", color}}>
+    <motion.div className="rounded-lg border border-gray-300 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] backdrop-blur-sm p-3 text-center transition-all">
+      <div className="flex items-center justify-center gap-1.5 mb-2">
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold flex-shrink-0"
+              style={{background: color+"33", color}}>
           {label}
         </span>
-        <span className="px-1.5 sm:px-2 py-0.5 rounded-full text-xs sm:text-[11px] font-semibold border whitespace-nowrap"
+        <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap"
               style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
           {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
         </span>
       </div>
-      <div className="mt-1.5 sm:mt-2 text-center">
-        <div className="text-xs sm:text-xs opacity-70">Current</div>
-        <div className="text-xl sm:text-2xl font-bold tabular-nums" style={{ color }}>
-          {Number.isFinite(val) ? Math.round(val as number) : '--'}
-        </div>
-        <div className="text-xs sm:text-xs opacity-60">ppm</div>
+      <div className="text-2xl font-bold tabular-nums" style={{ color }}>
+        {Number.isFinite(val) ? Math.round(val as number) : '--'}
       </div>
-      <div className="mt-1.5 sm:mt-2 text-xs sm:text-[11px] opacity-70 text-center">Range: {th.min}–{th.max} ppm</div>
+      <div className="text-xs opacity-60 mt-1 text-gray-700 dark:text-gray-300">ppm</div>
+      <div className="text-xs opacity-50 mt-2 text-center mb-2 text-gray-600 dark:text-gray-400">Range: {th.min}–{th.max}</div>
+      <div className="text-xs font-medium text-center" style={{color}}>
+        {trendIndicator} Trend
+      </div>
     </motion.div>
   )
 }

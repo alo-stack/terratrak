@@ -1,4 +1,4 @@
-// Sensors.tsx
+﻿// Sensors.tsx
 import React from "react"
 import {
   collection,
@@ -11,7 +11,7 @@ import {
   addDoc,
   serverTimestamp,
   doc,
-  getDoc,
+  getDocs,
 } from "firebase/firestore"
 import { db } from "../lib/firebase"
 import { motion, AnimatePresence, easeOut } from "framer-motion"
@@ -47,6 +47,29 @@ type Thresholds = {
 }
 
 const THRESHOLDS_KEY = "tt_thresholds"
+const DEFAULT_THRESHOLDS: Thresholds = {
+  temperature: { min: 15, max: 65 },
+  moisture: { min: 40, max: 80 },
+  npk: { n: { min: 50, max: 200 }, p: { min: 20, max: 100 }, k: { min: 50, max: 200 } },
+}
+
+const parseThresholds = (raw: any): Thresholds => {
+  try {
+    const t = typeof raw === "string" ? JSON.parse(raw) : (raw ?? {})
+    return {
+      temperature: { min: Number(t?.temperature?.min ?? 15), max: Number(t?.temperature?.max ?? 65) },
+      moisture: { min: Number(t?.moisture?.min ?? 40), max: Number(t?.moisture?.max ?? 80) },
+      npk: {
+        n: { min: Number(t?.n?.min ?? t?.npk?.n?.min ?? 50), max: Number(t?.n?.max ?? t?.npk?.n?.max ?? 200) },
+        p: { min: Number(t?.p?.min ?? t?.npk?.p?.min ?? 20), max: Number(t?.p?.max ?? t?.npk?.p?.max ?? 100) },
+        k: { min: Number(t?.k?.min ?? t?.npk?.k?.min ?? 50), max: Number(t?.k?.max ?? t?.npk?.k?.max ?? 200) },
+      },
+    }
+  } catch {
+    return DEFAULT_THRESHOLDS
+  }
+}
+
 const seriesWindow = 96 // ~24h if every 15min
 
 const clamp = (v: number, lo: number, hi: number) =>
@@ -59,6 +82,18 @@ const colorFor = (s: Status) =>
   s === "ok" ? "#10b981" : s === "low" ? "#38bdf8" : "#f59e0b"
 const statusFor = (v: number, min: number, max: number): Status =>
   v < min ? "low" : v > max ? "high" : "ok"
+
+const formatLastSeen = (timestamp: number) => {
+  const diffMs = Math.max(0, Date.now() - timestamp)
+  const sec = Math.round(diffMs / 1000)
+  if (sec < 60) return `${sec} sec${sec === 1 ? '' : 's'} ago`
+  const min = Math.round(sec / 60)
+  if (min < 60) return `${min} min${min === 1 ? '' : 's'} ago`
+  const hr = Math.round(min / 60)
+  if (hr < 24) return `${hr} hour${hr === 1 ? '' : 's'} ago`
+  const day = Math.round(hr / 24)
+  return `${day} day${day === 1 ? '' : 's'} ago`
+}
 
 const RANGES = {
   temp: { min: 15, max: 65 },
@@ -217,34 +252,63 @@ function useSensorHistory(range: RangeKey, deviceId = DEVICE_ID, dummyEnabled: b
 /* ------------------------------- Page ---------------------------------- */
 export default function Sensors() {
   const [dummyEnabled, setDummyEnabled] = React.useState(getDummyDataEnabled())
+  const [lastTransmissionTs, setLastTransmissionTs] = React.useState<number | null>(null)
 
   React.useEffect(() => onDummyDataChange(() => setDummyEnabled(getDummyDataEnabled())), [])
 
   const [range, setRange] = React.useState<RangeKey>("live")
   const { samples, mode } = useSensorHistory(range, DEVICE_ID, dummyEnabled)
 
-  const thresholds: Thresholds = React.useMemo(() => {
-    try {
-      const raw = localStorage.getItem(THRESHOLDS_KEY)
-      if (raw) {
-        const t = JSON.parse(raw)
-        return {
-          temperature: { min: Number(t?.temperature?.min ?? 15), max: Number(t?.temperature?.max ?? 65) },
-          moisture:    { min: Number(t?.moisture?.min ?? 40),     max: Number(t?.moisture?.max ?? 80) },
-          npk: {
-            n: { min: Number(t?.npk?.n?.min ?? 50),  max: Number(t?.npk?.n?.max ?? 200) },
-            p: { min: Number(t?.npk?.p?.min ?? 20),  max: Number(t?.npk?.p?.max ?? 100) },
-            k: { min: Number(t?.npk?.k?.min ?? 50),  max: Number(t?.npk?.k?.max ?? 200) },
-          },
-        }
-      }
-    } catch {}
-    return {
-      temperature: { min: 15, max: 65 },
-      moisture:    { min: 40, max: 80 },
-      npk: { n:{min:50,max:200}, p:{min:20,max:100}, k:{min:50,max:200} }
+  const [thresholds, setThresholds] = React.useState<Thresholds>(() => {
+    const raw = localStorage.getItem(THRESHOLDS_KEY)
+    return raw ? parseThresholds(raw) : DEFAULT_THRESHOLDS
+  })
+
+  React.useEffect(() => {
+    let active = true
+    const ref = doc(db, "alert_configs", "default")
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!active || !snap.exists()) return
+        const cloud = snap.data() as any
+        if (!cloud?.thresholds) return
+        setThresholds(parseThresholds(cloud.thresholds))
+        try {
+          localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(cloud.thresholds))
+        } catch {}
+      },
+      () => {}
+    )
+
+    return () => {
+      active = false
+      unsub()
     }
   }, [])
+
+  React.useEffect(() => {
+    if (dummyEnabled) {
+      setLastTransmissionTs(null)
+      return
+    }
+
+    const ref = doc(db, "sensor_readings", "latest")
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) return
+        const data = snap.data() as any
+        const ts = data?.updatedAt?.toMillis?.() ?? data?.timestamp?.toMillis?.()
+        if (ts) setLastTransmissionTs(ts)
+      },
+      () => {}
+    )
+
+    return () => {
+      unsub()
+    }
+  }, [dummyEnabled])
 
   const weekly = useWeeklySeries(false) // Always use real Firestore data, never dummy data
 
@@ -412,7 +476,7 @@ export default function Sensors() {
     if (t.includes('moist') || t.includes('moisture')) return 'Moisture is the percent water content. Add small, incremental water and mix; avoid soaking.'
     if (t.includes('temperature') || t.includes('temp')) return 'Temperature reflects decomposition activity. To cool, turn the pile or increase airflow.'
     if (t.includes('npk') || t.includes('n ') || t.includes('p ') || t.includes('k ')) return 'NPK are ppm nutrient readings. If out of range, adjust feed or bedding gradually and retest.'
-    if (t.includes('correlation') || t.includes('association')) return 'A statistical association — review recent changes (watering, feed, turning) before acting.'
+    if (t.includes('correlation') || t.includes('association')) return 'A statistical association - review recent changes (watering, feed, turning) before acting.'
     return 'Compare these tips with recent on-site actions (watering, turning, feeding) before making changes.'
   }
 
@@ -459,9 +523,11 @@ export default function Sensors() {
           {mode === "sim"
             ? "ESP32 not transmitting data, in simulation mode."
             : `ESP32 transmitted data last ${
-                samples.length > 0
-                  ? new Date(samples[samples.length - 1].ts).toLocaleString()
-                  : "N/A"
+                lastTransmissionTs
+                  ? formatLastSeen(lastTransmissionTs)
+                  : samples.length > 0
+                    ? formatLastSeen(samples[samples.length - 1].ts)
+                    : "N/A"
               }`}
         </p>
       </motion.section>
@@ -643,6 +709,8 @@ function useWeeklySeries(dummyEnabled: boolean, deviceId = DEVICE_ID) {
 }
 
 function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, thresholds, times, source }:{ tempSeries:number[]; moistSeries:number[]; nSeries:number[]; pSeries:number[]; kSeries:number[]; thresholds: Thresholds; times?: number[]; source: "dummy" | "firebase" }){
+  const [isExporting, setIsExporting] = React.useState(false)
+
   // Desired points for a week (based on seriesWindow baseline)
   const weekPoints = seriesWindow * 7
   const pick = (arr:number[]) => arr.slice(-Math.min(arr.length, weekPoints))
@@ -678,46 +746,76 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
   const weekEnd = new Date();
   const weekStart = new Date(Date.now() - 7*24*60*60*1000)
 
-  const exportCsv = () => {
+  const exportCsv = async () => {
+    if (isExporting) return
+    setIsExporting(true)
+
     try {
-      const tsPick = times ? times.slice(-Math.min(times.length, weekPoints)) : []
-      const picks = [tS, mS, nS, pS, kS]
-      const maxLen = Math.max(...picks.map(a=>a.length), tsPick.length)
-      const get = (arr:number[], len:number, i:number) => {
-        const start = Math.max(0, arr.length - len)
-        return arr[start + i]
+      const cutoffDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      const ref = collection(db, "sensor_readings", DEVICE_ID, "readings")
+      const q = query(
+        ref,
+        where("updatedAt", ">=", Timestamp.fromDate(cutoffDate)),
+        orderBy("updatedAt", "asc"),
+        qlimit(5000)
+      )
+
+      const snap = await getDocs(q)
+      const escapeCsv = (value: unknown) => {
+        if (value === null || value === undefined) return ""
+        const raw =
+          typeof value === "number" || typeof value === "boolean"
+            ? String(value)
+            : typeof value === "string"
+              ? value
+              : JSON.stringify(value)
+        const escaped = raw.replace(/"/g, '""')
+        return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped
       }
+
       const rows: string[] = []
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-      rows.push(`# Weekly report exported: timezone=${tz}`)
-      rows.push('timestamp,temperature,moisture,N,P,K')
-      for (let i=0;i<maxLen;i++){
-        const tsVal = tsPick.length ? get(tsPick, maxLen, i) : undefined
-        const tval = tsVal ? new Date(tsVal).toISOString() : ''
-        const row = [
-          tval,
-          (get(tS, maxLen, i) !== undefined) ? Number(get(tS, maxLen, i)).toFixed(2) : '',
-          (get(mS, maxLen, i) !== undefined) ? Number(get(mS, maxLen, i)).toFixed(2) : '',
-          (get(nS, maxLen, i) !== undefined) ? Math.round(get(nS, maxLen, i)) : '',
-          (get(pS, maxLen, i) !== undefined) ? Math.round(get(pS, maxLen, i)) : '',
-          (get(kS, maxLen, i) !== undefined) ? Math.round(get(kS, maxLen, i)) : '',
-        ].join(',')
-        rows.push(row)
-      }
-      // add BOM so Excel recognises UTF-8
-      const csv = '\uFEFF' + rows.join('\n')
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      rows.push(
+        [
+          "timestamp",
+          "average_temperature",
+          "average_moisture",
+          "n",
+          "p",
+          "k",
+        ].join(",")
+      )
+
+      snap.forEach((readingDoc) => {
+        const data = readingDoc.data() as Record<string, any>
+        const updatedAtMs = data.updatedAt?.toMillis?.() ?? ""
+        const updatedAtIso = updatedAtMs ? new Date(updatedAtMs).toISOString() : ""
+
+        const values = [
+          updatedAtIso,
+          data.tempC ?? data.temperature ?? "",
+          data.moisturePct ?? data.moisture ?? "",
+          data.npk?.n,
+          data.npk?.p,
+          data.npk?.k,
+        ]
+
+        rows.push(values.map(escapeCsv).join(","))
+      })
+
+      const csv = "\uFEFF" + rows.join("\n")
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
       const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
+      const a = document.createElement("a")
       a.href = url
-      const fn = `weekly-report-${(new Date()).toISOString().slice(0,10)}.csv`
-      a.download = fn
+      a.download = `firebase-raw-readings-${new Date().toISOString().slice(0, 10)}.csv`
       document.body.appendChild(a)
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
     } catch (e) {
-      console.error('CSV export failed', e)
+      console.error("CSV export failed", e)
+    } finally {
+      setIsExporting(false)
     }
   }
 
@@ -742,7 +840,7 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
 
   // Overall health summary - simple and clear
   const overallStatus = (() => {
-    if (totalAlerts === 0) return { icon: 'checkmark', text: 'Perfect Week', subtext: 'All conditions ideal', color: '#10b981' }
+    if (totalAlerts === 0) return { icon: '✓', text: 'Perfect Week', subtext: 'All conditions ideal', color: '#10b981' }
     if (totalAlerts <= 5) return { icon: '✓', text: 'Great', subtext: `${totalAlerts} minor issue${totalAlerts>1?'s':''}`, color: '#10b981' }
     if (totalAlerts <= 15) return { icon: '⚠', text: 'Watch', subtext: `${totalAlerts} readings off`, color: '#f59e0b' }
     return { icon: '⚠', text: 'Needs Attention', subtext: `${totalAlerts} issues detected`, color: '#ef4444' }
@@ -806,96 +904,100 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
       <div className="absolute inset-0 -z-10 text-emerald-600 dark:text-emerald-400 bg-dots" />
       <div className="absolute -bottom-14 -right-10 w-56 h-56 rounded-full bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10" />
 
-      <div className="p-4 sm:p-6">
+      <div className="p-3 sm:p-4">
         {/* HEADER - Quick glance status */}
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-gray-100">7-Day Summary</h3>
-              <span className="text-xs px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-200">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-gray-100">7-Day Summary</h3>
+              <span className="text-[11px] px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-200">
                 {source === "dummy" ? "Demo" : "Live Data"}
               </span>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: overallStatus.color + '22', border: `2px solid ${overallStatus.color}` }}>
-                <span className="text-lg">{overallStatus.icon}</span>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border" style={{ background: overallStatus.color + '14', borderColor: `${overallStatus.color}55` }}>
+                <span className="text-sm font-bold" style={{ color: overallStatus.color }}>{overallStatus.icon}</span>
                 <div className="flex flex-col">
-                  <span className="font-bold text-sm" style={{ color: overallStatus.color }}>{overallStatus.text}</span>
-                  <span className="text-xs opacity-70">{overallStatus.subtext}</span>
+                  <span className="font-bold text-xs sm:text-sm leading-tight" style={{ color: overallStatus.color }}>{overallStatus.text}</span>
+                  <span className="text-[11px] opacity-70 leading-tight">{overallStatus.subtext}</span>
                 </div>
               </div>
             </div>
-            <div className="text-sm opacity-70 mt-2">{weekStart.toLocaleDateString()} — {weekEnd.toLocaleDateString()}</div>
+            <div className="text-xs sm:text-sm opacity-70 mt-1.5">{weekStart.toLocaleDateString()} - {weekEnd.toLocaleDateString()}</div>
           </div>
 
           <button 
             onClick={exportCsv} 
-            className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors shadow-sm whitespace-nowrap"
+            disabled={isExporting}
+            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-medium transition-colors shadow-sm whitespace-nowrap"
           >
-            Export CSV
+            {isExporting ? "Exporting..." : "Export CSV"}
           </button>
         </div>
 
         {/* KEY METRICS - Visual cards that are easy to scan */}
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3">
           {/* Temperature Card */}
-          <div className="rounded-xl border-2 p-4 bg-white/50 dark:bg-gray-900/50" style={{ borderColor: tInfo.color + '55' }}>
-            <div className="flex items-start justify-between mb-3">
+          <div className="rounded-xl border p-3 bg-white/60 dark:bg-gray-900/50" style={{ borderColor: tInfo.color + '44' }}>
+            <div className="flex items-start justify-between mb-2">
               <div className="flex-1">
-                <span className="font-semibold text-gray-900 dark:text-gray-100 block text-sm sm:text-base">Temperature</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100 block text-sm">Temperature</span>
+                <span className="text-[11px] opacity-65">Target {thresholds.temperature.min}-{thresholds.temperature.max} °C</span>
               </div>
-              <span className="text-lg">{tInfo.icon}</span>
+              <span className="text-base font-semibold" style={{ color: tInfo.color }}>{tInfo.icon}</span>
             </div>
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-2xl sm:text-3xl font-bold tabular-nums">{tAvg.toFixed(1)}</span>
-              <span className="text-sm opacity-70">°C</span>
+            <div className="flex items-baseline gap-1.5 mb-1.5">
+              <span className="text-2xl font-bold tabular-nums">{tAvg.toFixed(1)}</span>
+              <span className="text-xs opacity-70">°C</span>
             </div>
-            <div className="flex flex-col gap-1 text-xs">
-              <div className="px-2 py-1 rounded-md text-xs font-semibold w-fit" style={{ background: tInfo.color, color: '#fff' }}>
+            <div className="flex flex-col gap-0.5 text-xs">
+              <div className="px-2 py-0.5 rounded-md text-[11px] font-semibold w-fit border" style={{ background: tInfo.color + '18', color: tInfo.color, borderColor: tInfo.color + '55' }}>
                 {tInfo.status}
               </div>
-              <span className="opacity-70">{tInfo.reason}</span>
+              <span className="opacity-70 text-[11px]">{tInfo.reason}</span>
             </div>
           </div>
 
           {/* Moisture Card */}
-          <div className="rounded-xl border-2 p-4 bg-white/50 dark:bg-gray-900/50" style={{ borderColor: mInfo.color + '55' }}>
-            <div className="flex items-start justify-between mb-3">
+          <div className="rounded-xl border p-3 bg-white/60 dark:bg-gray-900/50" style={{ borderColor: mInfo.color + '44' }}>
+            <div className="flex items-start justify-between mb-2">
               <div className="flex-1">
-                <span className="font-semibold text-gray-900 dark:text-gray-100 block text-sm sm:text-base">Moisture</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100 block text-sm">Moisture</span>
+                <span className="text-[11px] opacity-65">Target {thresholds.moisture.min}-{thresholds.moisture.max}%</span>
               </div>
-              <span className="text-lg">{mInfo.icon}</span>
+              <span className="text-base font-semibold" style={{ color: mInfo.color }}>{mInfo.icon}</span>
             </div>
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-2xl sm:text-3xl font-bold tabular-nums">{mAvg.toFixed(1)}</span>
-              <span className="text-sm opacity-70">%</span>
+            <div className="flex items-baseline gap-1.5 mb-1.5">
+              <span className="text-2xl font-bold tabular-nums">{mAvg.toFixed(1)}</span>
+              <span className="text-xs opacity-70">%</span>
             </div>
-            <div className="flex flex-col gap-1 text-xs">
-              <div className="px-2 py-1 rounded-md text-xs font-semibold w-fit" style={{ background: mInfo.color, color: '#fff' }}>
+            <div className="flex flex-col gap-0.5 text-xs">
+              <div className="px-2 py-0.5 rounded-md text-[11px] font-semibold w-fit border" style={{ background: mInfo.color + '18', color: mInfo.color, borderColor: mInfo.color + '55' }}>
                 {mInfo.status}
               </div>
-              <span className="opacity-70">{mInfo.reason}</span>
+              <span className="opacity-70 text-[11px]">{mInfo.reason}</span>
             </div>
           </div>
 
           {/* NPK Card */}
-          <div className="rounded-xl border-2 p-4 bg-white/50 dark:bg-gray-900/50 sm:col-span-2" style={{ borderColor: '#10b981' + '55' }}>
-            <div className="mb-3">
-              <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm sm:text-base">Nutrients (NPK)</span>
+          <div className="rounded-xl border p-3 bg-white/60 dark:bg-gray-900/50" style={{ borderColor: '#10b98144' }}>
+            <div className="mb-2">
+              <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">Nutrients (NPK)</span>
+              <div className="text-[11px] opacity-65 mt-0.5">N {thresholds.npk.n.min}-{thresholds.npk.n.max} | P {thresholds.npk.p.min}-{thresholds.npk.p.max} | K {thresholds.npk.k.min}-{thresholds.npk.k.max}</div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2">
               <div className="text-center">
-                <div className="text-xs opacity-70 mb-1">Nitrogen</div>
-                <div className="text-xl sm:text-2xl font-bold tabular-nums">{Math.round(nAvg)}</div>
-                <div className="text-lg mt-1">{nInfo.icon}</div>
+                <div className="text-[11px] opacity-70 mb-0.5">N</div>
+                <div className="text-xl font-bold tabular-nums">{Math.round(nAvg)}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: nInfo.color }}>{nInfo.status}</div>
               </div>
               <div className="text-center">
-                <div className="text-xs opacity-70 mb-1">Phosphorus</div>
-                <div className="text-xl sm:text-2xl font-bold tabular-nums">{Math.round(pAvg)}</div>
-                <div className="text-lg mt-1">{pInfo.icon}</div>
+                <div className="text-[11px] opacity-70 mb-0.5">P</div>
+                <div className="text-xl font-bold tabular-nums">{Math.round(pAvg)}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: pInfo.color }}>{pInfo.status}</div>
               </div>
               <div className="text-center">
-                <div className="text-xs opacity-70 mb-1">Potassium</div>
-                <div className="text-xl sm:text-2xl font-bold tabular-nums">{Math.round(kAvg)}</div>
-                <div className="text-lg mt-1">{kInfo.icon}</div>
+                <div className="text-[11px] opacity-70 mb-0.5">K</div>
+                <div className="text-xl font-bold tabular-nums">{Math.round(kAvg)}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: kInfo.color }}>{kInfo.status}</div>
               </div>
             </div>
           </div>
@@ -903,13 +1005,13 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
 
         {/* WHAT TO DO - Action items */}
         {actionItems.length > 0 && (
-          <div className="mt-6 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border border-emerald-200 dark:border-emerald-800 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <h4 className="font-semibold text-gray-900 dark:text-gray-100">Recommendations</h4>
+          <div className="mt-4 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border border-emerald-200 dark:border-emerald-800 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm">Recommendations</h4>
             </div>
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5">
               {actionItems.map((item, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs sm:text-sm text-gray-700 dark:text-gray-300">
+                <div key={i} className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300">
                   <span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span>
                   <span>{item}</span>
                 </div>
@@ -919,14 +1021,14 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
         )}
 
         {/* STABILITY INDICATOR */}
-        <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 gap-3">
+        <div className="mt-4 flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 gap-2">
           <div className="flex-1">
-            <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm sm:text-base">Stability Index</div>
-            <div className="text-xs sm:text-sm opacity-70 mt-1">
+            <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm">Stability Index</div>
+            <div className="text-xs opacity-70 mt-0.5">
               {avgCv < 0.12 ? 'Stable' : avgCv < 0.25 ? 'Moderate variation' : 'High variation'}
             </div>
           </div>
-          <div className="px-4 py-2 rounded-lg font-bold text-sm sm:text-base w-fit" style={{ 
+          <div className="px-3 py-1.5 rounded-lg font-bold text-xs sm:text-sm w-fit" style={{ 
             background: avgCv < 0.12 ? '#10b98122' : avgCv < 0.25 ? '#f59e0b22' : '#ef444422',
             color: avgCv < 0.12 ? '#10b981' : avgCv < 0.25 ? '#f59e0b' : '#ef4444'
           }}>
@@ -967,9 +1069,9 @@ function SummaryCard({ series, times, kpi, range }:{ series:{ temp:number[]; moi
   
   // Temperature insights
   if (tempStatus === 'high') {
-    insights.push('🌡️ Temperature is high — improve ventilation')
+    insights.push('🌡️ Temperature is high - improve ventilation')
   } else if (tempStatus === 'low') {
-    insights.push('🌡️ Temperature is low — check insulation or add warmth')
+    insights.push('🌡️ Temperature is low - check insulation or add warmth')
   } else if (tempTrend.trend.includes('Rising')) {
     insights.push('🌡️ Temperature rising steadily')
   } else if (tempTrend.trend.includes('Falling')) {
@@ -978,9 +1080,9 @@ function SummaryCard({ series, times, kpi, range }:{ series:{ temp:number[]; moi
 
   // Moisture insights
   if (moistStatus === 'high') {
-    insights.push('💧 Moisture is high — reduce watering')
+    insights.push('💧 Moisture is high - reduce watering')
   } else if (moistStatus === 'low') {
-    insights.push('💧 Moisture is low — add water gradually')
+    insights.push('💧 Moisture is low - add water gradually')
   } else if (moistTrend.trend.includes('Rising')) {
     insights.push('💧 Moisture increasing')
   } else if (moistTrend.trend.includes('Falling')) {
@@ -994,7 +1096,7 @@ function SummaryCard({ series, times, kpi, range }:{ series:{ temp:number[]; moi
   if (kStatus !== 'ok') npkIssues.push(`K ${kStatus}`)
   
   if (npkIssues.length > 0) {
-    insights.push(`🌿 Nutrients: ${npkIssues.join(', ')} — adjust feeding`)
+    insights.push(`🌿 Nutrients: ${npkIssues.join(', ')} - adjust feeding`)
   }
 
   if (insights.length === 0) {
@@ -1208,6 +1310,8 @@ function NpkKpiCard({ nSeries, pSeries, kSeries, kpi, status }:{ nSeries:number[
   const nAn = detectAnomalies(nSeries).length
   const pAn = detectAnomalies(pSeries).length
   const kAn = detectAnomalies(kSeries).length
+  const statusLabel = (s: Status) => (s === 'ok' ? 'In range' : s === 'low' ? 'Low' : 'High')
+  const statusHint = (s: Status) => (s === 'ok' ? 'Within target range' : s === 'low' ? 'Below target range' : 'Above target range')
 
   return (
     <motion.div
@@ -1235,15 +1339,16 @@ function NpkKpiCard({ nSeries, pSeries, kSeries, kpi, status }:{ nSeries:number[
             <div className="flex items-center justify-center gap-2">
               <span className="inline-block w-3 h-3 rounded-full" style={{ background: it.color }} />
               <div className="text-xs opacity-80">{it.label}</div>
-              <div className="px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ borderColor: colorFor(it.stat)+'55', background: colorFor(it.stat)+'10', color: colorFor(it.stat) }}>{it.stat.toUpperCase()}</div>
+              <div className="px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ borderColor: colorFor(it.stat)+'55', background: colorFor(it.stat)+'10', color: colorFor(it.stat) }}>{statusLabel(it.stat)}</div>
             </div>
             <div className="text-2xl font-bold mt-2 tabular-nums" style={{ color: it.color }}>{it.val}</div>
-            <div className="text-xs opacity-70 mt-1">MA(5): {formatValue(it.ma,'ppm')} • σ: {it.sd}</div>
-            <div className="text-xs opacity-60 mt-1">Anomalies: {it.an}</div>
+            <div className="text-xs mt-1" style={{ color: colorFor(it.stat) }}>{statusHint(it.stat)}</div>
+            <div className="text-xs opacity-70 mt-1">Recent average: {formatValue(it.ma,'ppm')}</div>
+            <div className="text-xs opacity-60 mt-1">Outliers detected: {it.an}</div>
           </div>
         ))}
       </div>
-      <div className="mt-2 text-xs opacity-70">Units based on your NPK sensor (ppm). Analytics: moving average (MA), standard deviation (σ), anomaly count (z≥2).</div>
+      <div className="mt-2 text-xs opacity-70">NPK values are shown in ppm. Use the status to see if each nutrient is in range, low, or high.</div>
     </motion.div>
   )
 }
@@ -1300,7 +1405,7 @@ function ChartCard({
           <span>{trend}</span>
         </div>
         <div className="opacity-70 text-xs sm:text-sm">
-          {interp} — Min: <span className="tabular-nums">{minV.toFixed(1)}{unit}</span>
+          {interp} • Min: <span className="tabular-nums">{minV.toFixed(1)}{unit}</span>
           <span className="mx-2">•</span>
           Max: <span className="tabular-nums">{maxV.toFixed(1)}{unit}</span>
         </div>
@@ -1550,3 +1655,4 @@ function AutoChart({ data, stroke, times, unit }: { data: number[]; stroke: stri
     </div>
   )
 }
+

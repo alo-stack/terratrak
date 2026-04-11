@@ -22,6 +22,28 @@ type Thresholds = {
 
 const THRESHOLDS_KEY = "tt_thresholds"
 const DEVICE_ID = "esp32-001"
+const DEFAULT_THRESHOLDS: Thresholds = {
+  temperature: { min: 15, max: 65 },
+  moisture: { min: 40, max: 80 },
+  npk: { n: { min: 50, max: 200 }, p: { min: 20, max: 100 }, k: { min: 50, max: 200 } },
+}
+
+const parseThresholds = (raw: any): Thresholds => {
+  try {
+    const t = typeof raw === "string" ? JSON.parse(raw) : (raw ?? {})
+    return {
+      temperature: { min: Number(t?.temperature?.min ?? 15), max: Number(t?.temperature?.max ?? 65) },
+      moisture:    { min: Number(t?.moisture?.min ?? 40),     max: Number(t?.moisture?.max ?? 80) },
+      npk: {
+        n: { min: Number(t?.n?.min ?? t?.npk?.n?.min ?? 50),  max: Number(t?.n?.max ?? t?.npk?.n?.max ?? 200) },
+        p: { min: Number(t?.p?.min ?? t?.npk?.p?.min ?? 20),  max: Number(t?.p?.max ?? t?.npk?.p?.max ?? 100) },
+        k: { min: Number(t?.k?.min ?? t?.npk?.k?.min ?? 50),  max: Number(t?.k?.max ?? t?.npk?.k?.max ?? 200) },
+      },
+    }
+  } catch {
+    return DEFAULT_THRESHOLDS
+  }
+}
 
 type StatusKey = "ok" | "warn" | "alert"
 const statusColor: Record<StatusKey, string> = {
@@ -33,6 +55,20 @@ const statusDotClass: Record<StatusKey, string> = {
   ok: "bg-emerald-500",
   warn: "bg-amber-500",
   alert: "bg-rose-500",
+}
+
+const statusPhrase = (status: StatusKey) => {
+  if (status === "ok") return "In range"
+  if (status === "warn") return "Near limit"
+  return "Needs action"
+}
+
+const trendPhrase = (trend: string) => {
+  const t = trend.toLowerCase()
+  if (t.includes("rise")) return "Rising steadily"
+  if (t.includes("fall")) return "Falling steadily"
+  if (t.includes("stable")) return "Holding steady"
+  return "Not enough data"
 }
 
 const clamp = (v:number, lo:number, hi:number) => Math.max(lo, Math.min(hi, v))
@@ -264,26 +300,32 @@ export default function Overview() {
 
   React.useEffect(() => onDummyDataChange(() => setDummyEnabled(getDummyDataEnabled())), [])
 
-  const thresholds: Thresholds = React.useMemo(() => {
-    try {
-      const raw = localStorage.getItem(THRESHOLDS_KEY)
-      if (raw) {
-        const t = JSON.parse(raw)
-        return {
-          temperature: { min: Number(t?.temperature?.min ?? 15), max: Number(t?.temperature?.max ?? 65) },
-          moisture:    { min: Number(t?.moisture?.min ?? 40),     max: Number(t?.moisture?.max ?? 80) },
-          npk: {
-            n: { min: Number(t?.npk?.n?.min ?? 50),  max: Number(t?.npk?.n?.max ?? 200) },
-            p: { min: Number(t?.npk?.p?.min ?? 20),  max: Number(t?.npk?.p?.max ?? 100) },
-            k: { min: Number(t?.npk?.k?.min ?? 50),  max: Number(t?.npk?.k?.max ?? 200) },
-          },
-        }
-      }
-    } catch {}
-    return {
-      temperature: { min: 15, max: 65 },
-      moisture:    { min: 40, max: 80 },
-      npk: { n:{min:50,max:200}, p:{min:20,max:100}, k:{min:50,max:200} }
+  const [thresholds, setThresholds] = React.useState<Thresholds>(() => {
+    const raw = localStorage.getItem(THRESHOLDS_KEY)
+    return raw ? parseThresholds(raw) : DEFAULT_THRESHOLDS
+  })
+
+  React.useEffect(() => {
+    let active = true
+    const ref = doc(db, "alert_configs", "default")
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!active || !snap.exists()) return
+        const cloud = snap.data() as any
+        if (!cloud?.thresholds) return
+        const next = parseThresholds(cloud.thresholds)
+        setThresholds(next)
+        try {
+          localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(cloud.thresholds))
+        } catch {}
+      },
+      () => {}
+    )
+
+    return () => {
+      active = false
+      unsub()
     }
   }, [])
 
@@ -315,19 +357,19 @@ export default function Overview() {
 
   const alerts: Array<{ id:string; level:StatusKey; msg:string }> = []
   if (hasOverviewData) {
-    if (sTemp  !== "ok") alerts.push({ id:"t", level:sTemp,  msg: sTemp==="warn" ? "Temperature nearing threshold" : "Temperature out of range" })
-    if (sMoist !== "ok") alerts.push({ id:"m", level:sMoist, msg: sMoist==="warn" ? "Moisture nearing threshold" : "Moisture out of range" })
-    if (sN     !== "ok") alerts.push({ id:"n", level:sN, msg: sN==="warn" ? "Nitrogen nearing threshold" : "Nitrogen out of range" })
-    if (sP     !== "ok") alerts.push({ id:"p", level:sP, msg: sP==="warn" ? "Phosphorus nearing threshold" : "Phosphorus out of range" })
-    if (sK     !== "ok") alerts.push({ id:"k", level:sK, msg: sK==="warn" ? "Potassium nearing threshold" : "Potassium out of range" })
+    if (sTemp  !== "ok") alerts.push({ id:"t", level:sTemp,  msg: sTemp==="warn" ? "Temperature close to limit" : "Temperature outside safe range" })
+    if (sMoist !== "ok") alerts.push({ id:"m", level:sMoist, msg: sMoist==="warn" ? "Moisture close to limit" : "Moisture outside safe range" })
+    if (sN     !== "ok") alerts.push({ id:"n", level:sN, msg: sN==="warn" ? "Nitrogen close to limit" : "Nitrogen outside safe range" })
+    if (sP     !== "ok") alerts.push({ id:"p", level:sP, msg: sP==="warn" ? "Phosphorus close to limit" : "Phosphorus outside safe range" })
+    if (sK     !== "ok") alerts.push({ id:"k", level:sK, msg: sK==="warn" ? "Potassium close to limit" : "Potassium outside safe range" })
   }
 
   const tips = [
-    "Opt for a moist, wrung-out sponge feel—too wet limits air flow.",
-    "Shred cardboard (carbon) to balance kitchen scraps (nitrogen).",
-    "Turn or lift bedding weekly to prevent anaerobic pockets.",
-    "Keep nutrients balanced; excess salts can stress the bin.",
-    "Small, frequent feedings reduce odor and heating spikes.",
+    "Keep moisture like a wrung sponge, not dripping.",
+    "Add dry cardboard to balance fresh scraps.",
+    "Turn bedding weekly to keep airflow steady.",
+    "Balance NPK slowly to avoid sudden stress.",
+    "Feed in small batches to reduce odor spikes.",
   ]
   const [tipIdx, setTipIdx] = React.useState(0)
   React.useEffect(() => {
@@ -387,7 +429,7 @@ export default function Overview() {
               animate={{ backgroundColor: statusColor[healthRank] + '22', color: statusColor[healthRank] }}
               style={{ border: `1px solid ${statusColor[healthRank]}44` }}
             >
-              {healthRank === "ok" ? "Good" : healthRank === "warn" ? "Watch" : "Attention"}
+              {healthRank === "ok" ? "All clear" : healthRank === "warn" ? "Needs review" : "Take action"}
             </motion.span>
           </div>
         </div>
@@ -411,7 +453,7 @@ export default function Overview() {
         <h3 className="text-base sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">Active alerts</h3>
         <div className="mt-3 space-y-2">
           {alerts.length === 0 && (
-            <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">No active alerts. All parameters are within range.</div>
+            <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">No active alerts. Readings are in range.</div>
           )}
           <AnimatePresence>
             {alerts.map(a => (
@@ -502,7 +544,7 @@ export default function Overview() {
             <h3 className="text-base sm:text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">Active alerts</h3>
             <div className="mt-3 space-y-2">
               {alerts.length === 0 && (
-                <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">No active alerts. All parameters are within range.</div>
+                <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-sm text-gray-700 dark:text-gray-300 opacity-80">No active alerts. Readings are in range.</div>
               )}
               <AnimatePresence>
                 {alerts.map(a => (
@@ -592,6 +634,7 @@ function SummaryRow({
   const s = series.slice(-48)
   const t = computeTrend(s, times ? times.slice(-48) : undefined)
   const trend = s.length < 2 ? 'N/A' : t.trend
+  const trendLabel = trendPhrase(trend)
   const pctStr = s.length < 2 || !Number.isFinite(t.pct) ? '--' : `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`
   const avgVal = Number.isFinite(data.avg) ? (data.avg as number) : null
   const deltaToBoundary = avgVal === null
@@ -621,7 +664,7 @@ function SummaryRow({
           <h3 className="text-xs sm:text-sm font-semibold uppercase tracking-wide opacity-85 text-gray-900 dark:text-gray-100">{title}</h3>
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap"
                 style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
-            {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
+            {statusPhrase(status)}
           </span>
         </div>
         
@@ -649,7 +692,7 @@ function SummaryRow({
             <div className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300">
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className="opacity-70">Trend:</span>
-                <span className="font-medium">{trend}</span>
+                <span className="font-medium">{trendLabel}</span>
                 <span className="opacity-60">•</span>
                 <span className="tabular-nums font-medium">{pctStr}</span>
               </div>
@@ -725,7 +768,7 @@ function NPKRow({
           <h3 className="text-sm font-semibold uppercase tracking-wide opacity-85 text-gray-900 dark:text-gray-100">NPK (ppm)</h3>
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap"
                 style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
-            {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
+            {statusPhrase(status)}
           </span>
         </div>
 
@@ -759,7 +802,7 @@ function NPKRow({
           </div>
           <div className="text-xs opacity-70 pt-1 text-gray-700 dark:text-gray-300">
             <span className="font-medium" style={{color: statusColor[status]}}>
-              {status === 'ok' ? 'Balanced' : status === 'warn' ? 'Watch balance' : 'Imbalance detected'}
+              {status === 'ok' ? 'NPK levels balanced' : status === 'warn' ? 'NPK near limits' : 'NPK needs correction'}
             </span>
           </div>
         </div>
@@ -789,7 +832,7 @@ function NPKChip({
         </span>
         <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap"
               style={{ color: statusColor[status], borderColor: statusColor[status]+"55", background: statusColor[status]+"10" }}>
-          {status === "ok" ? "OK" : status === "warn" ? "Watch" : "Alert"}
+          {statusPhrase(status)}
         </span>
       </div>
       <div className="text-2xl font-bold tabular-nums" style={{ color }}>
@@ -798,7 +841,7 @@ function NPKChip({
       <div className="text-xs opacity-60 mt-1 text-gray-700 dark:text-gray-300">ppm</div>
       <div className="text-xs opacity-50 mt-2 text-center mb-2 text-gray-600 dark:text-gray-400">Range: {th.min}–{th.max}</div>
       <div className="text-xs font-medium text-center" style={{color}}>
-        {trendIndicator} Trend
+        {trendIndicator} {trendIndicator === '↑' ? 'Going up' : trendIndicator === '↓' ? 'Going down' : 'Holding steady'}
       </div>
     </motion.div>
   )

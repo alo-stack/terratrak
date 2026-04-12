@@ -74,7 +74,7 @@ export default function Settings() {
   const [saving, setSaving] = React.useState<"thresholds" | "email" | null>(null)
   const [banner, setBanner] = React.useState<{ kind: "ok" | "err"; msg: string } | null>(null)
   const [savedPulse, setSavedPulse] = React.useState<"t" | "e" | null>(null)
-  const [loadingEmail, setLoadingEmail] = React.useState<boolean>(true)
+  const [loadingEmail, setLoadingEmail] = React.useState<boolean>(false)
   const emailListRef = React.useRef<string[]>([])
   const savedEmailsRef = React.useRef<string[]>([])
   const [dummyEnabled, setDummyEnabled] = React.useState<boolean>(getDummyDataEnabled())
@@ -158,6 +158,24 @@ export default function Settings() {
   }
 
   const validateEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())
+  const maskEmail = (email: string): string => {
+    const [localRaw, domainRaw] = email.trim().toLowerCase().split("@")
+    if (!localRaw || !domainRaw) return "***"
+
+    const localMasked = localRaw.length <= 2
+      ? `${localRaw[0] || "*"}*`
+      : `${localRaw.slice(0, 2)}${"*".repeat(Math.max(localRaw.length - 2, 3))}`
+
+    const domainParts = domainRaw.split(".")
+    const host = domainParts[0] || ""
+    const tld = domainParts.slice(1).join(".")
+    const hostMasked = host.length <= 1
+      ? "*"
+      : `${host[0]}${"*".repeat(Math.max(host.length - 1, 2))}`
+
+    return tld ? `${localMasked}@${hostMasked}.${tld}` : `${localMasked}@${hostMasked}`
+  }
+
   const normalizeEmails = (emails: string[]) =>
     emails
       .map((e) => e.trim().toLowerCase())
@@ -273,9 +291,16 @@ export default function Settings() {
     }
   }
 
-  // Load & subscribe to recipient list from Firestore
+  // Load & subscribe to recipient list from Firestore only after unlock.
+  // This prevents recipients from being present in the DOM/state before access is granted.
   React.useEffect(() => {
+    if (!unlocked) {
+      setLoadingEmail(false)
+      return
+    }
+
     let active = true
+    setLoadingEmail(true)
     try {
       const ref = doc(db, "email_addresses", "recipients")
       const unsub = onSnapshot(ref, (snap) => {
@@ -306,7 +331,7 @@ export default function Settings() {
       if (active) setLoadingEmail(false)
       return () => { active = false }
     }
-  }, [])
+  }, [unlocked])
 
   // Load & subscribe to threshold config from Firestore so changes propagate across devices
   React.useEffect(() => {
@@ -510,11 +535,11 @@ export default function Settings() {
                   key={addr}
                   className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs bg-[hsl(var(--muted))] dark:bg-white/[0.06] border border-[hsl(var(--border))] dark:border-white/10"
                 >
-                  <span className="text-gray-700 dark:text-gray-200">{addr}</span>
+                  <span className="text-gray-700 dark:text-gray-200">{maskEmail(addr)}</span>
                   <button
                     onClick={() => removeEmail(addr)}
                     className="text-gray-500 hover:text-rose-600"
-                    aria-label={`Remove ${addr}`}
+                    aria-label="Remove recipient"
                     type="button"
                   >
                     ×

@@ -87,6 +87,22 @@ export const testEmail = onRequest(
     memory: '256MiB',
   },
   async (req, res) => {
+    const configuredToken = process.env.TEST_EMAIL_TOKEN;
+    const authHeader = req.get('authorization') || '';
+    const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    const headerToken = req.get('x-terratrak-admin-token') || '';
+    const incomingToken = headerToken || bearerToken;
+
+    if (!configuredToken) {
+      res.status(503).send('testEmail is disabled until TEST_EMAIL_TOKEN is configured.');
+      return;
+    }
+
+    if (!incomingToken || incomingToken !== configuredToken) {
+      res.status(401).send('Unauthorized');
+      return;
+    }
+
     try {
       await sendEmail({
         subject: 'TerraTrak Test Email',

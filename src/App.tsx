@@ -6,6 +6,8 @@ import Overview from './pages/Overview'
 import Sensors from './pages/Sensors'
 import Settings from './pages/Settings'
 import About from './pages/About'
+import VermicompostingGuide from './pages/VermicompostingGuide'
+import DashboardAnalyticsGuide from './pages/DashboardAnalyticsGuide'
 
 export default function App(){
   return (
@@ -25,6 +27,8 @@ export default function App(){
                 <Route path="/sensors" element={<Sensors />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} />
+                <Route path="/about/vermicomposting-guide" element={<VermicompostingGuide />} />
+                <Route path="/about/dashboard-analytics-guide" element={<DashboardAnalyticsGuide />} />
               </Routes>
             </main>
           </div>

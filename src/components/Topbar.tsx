@@ -114,6 +114,8 @@ export default function Topbar() {
 }
 
 function getTitle(pathname: string): string {
+  if (pathname.startsWith("/about/dashboard-analytics-guide")) return "Dashboard Analytics Guide"
+  if (pathname.startsWith("/about/vermicomposting-guide")) return "Vermicomposting Guide"
   if (pathname === "/" || pathname.startsWith("/overview")) return "Dashboard"
   if (pathname.startsWith("/sensors")) return "Sensors"
   if (pathname.startsWith("/settings")) return "Settings"

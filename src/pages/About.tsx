@@ -1,7 +1,27 @@
 import React from "react"
+import { Link } from "react-router-dom"
 import Icon from "../components/Icon"
 
 export default function About() {
+  const guidesRef = React.useRef<HTMLElement | null>(null)
+  const [guidesInView, setGuidesInView] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!guidesRef.current) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        setGuidesInView(true)
+        observer.disconnect()
+      },
+      { threshold: 0.2 }
+    )
+
+    observer.observe(guidesRef.current)
+    return () => observer.disconnect()
+  }, [])
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 animate-fade-in-up">
       {/* About TerraTrak — wider on xl */}
@@ -39,6 +59,17 @@ export default function About() {
           </p>
         </div>
 
+        {/* Profile strip */}
+        <div className="mt-4 rounded-xl border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--muted))/0.35] dark:bg-white/[0.03] p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <MiniBadge>Smart composting</MiniBadge>
+            <MiniBadge>Soil intelligence</MiniBadge>
+            <MiniBadge>Pilot-ready deployment</MiniBadge>
+          </div>
+        </div>
+
+        <SectionDivider label="System Snapshot" color="emerald" />
+
         {/* Quick stats (hover lift + soft ring) */}
         <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Stat label="Sensors" value="10+" hint="Temp · Moist · NPK" />
@@ -46,6 +77,8 @@ export default function About() {
           <Stat label="Pilot sites" value="1" hint="farm" />
           <Stat label="Fertilizer spend" value="↓ 25–40%" hint="target reduction" />
         </div>
+
+        <SectionDivider label="Value Highlights" color="cyan" />
 
         {/* Value bullets */}
         <div className="mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-4 grid md:grid-cols-2 gap-3">
@@ -64,21 +97,6 @@ export default function About() {
           <Tag float>Alerts</Tag>
         </div>
 
-        {/* Data analysis card: simple explanations for users */}
-        <div className="mt-4 rounded-2xl border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--card))] p-4">
-          <h3 className="text-sm font-semibold mb-2">Data analyses on this dashboard</h3>
-          <div className="text-xs text-gray-700 dark:text-gray-200 space-y-2">
-            <div><strong>Moving average:</strong> averages the last few readings to smooth noise and show the true direction of temperature, moisture, and NPK.</div>
-            <div><strong>Standard deviation (SD):</strong> shows how much readings swing around the average. Low SD means steady; high SD means unstable.</div>
-            <div><strong>Anomaly detection:</strong> flags unusual spikes or drops that are far from normal, so sudden issues are easier to spot.</div>
-            <div><strong>Trend (change over time):</strong> combines slope and percent change to label each metric as rising, falling, or stable.</div>
-            <div><strong>Correlation:</strong> checks whether two metrics move together (for example moisture and nutrients), which helps reveal linked behavior.</div>
-            <div><strong>Stability score:</strong> combines variability across key metrics into one stability index. Higher score means more consistent conditions.</div>
-            <div><strong>NPK analytics:</strong> breaks N, P, and K into separate trends, SD, and anomaly counts to highlight nutrient imbalance early.</div>
-            <div><strong>Weekly summary:</strong> gives a 7-day snapshot with averages, out-of-range counts, and quick guidance for corrective actions.</div>
-            <div><strong>CSV export:</strong> downloads the weekly table (timestamp, temperature, moisture, N, P, K) for records or sharing.</div>
-          </div>
-        </div>
       </section>
 
       {/* Team — narrower on xl */}
@@ -98,7 +116,8 @@ export default function About() {
           title="Who made TerraTrak possible?"
         />
 
-        <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 mt-2 mb-2">Researchers</h3>
+        <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 mt-2 mb-1">Researchers</h3>
+        <p className="text-xs text-gray-600 dark:text-gray-300 mb-3">Core team behind system design, testing, and field implementation.</p>
         <ul className="space-y-2">
           <Person name="Corcino, Daniel Justine" />
           <Person name="De Mesa, Charisse Anne" />
@@ -109,7 +128,7 @@ export default function About() {
         <div className="mt-5 grid sm:grid-cols-2 gap-4">
           <Info label="Organization" value="Polytechnic University of the Philippines" />
           <Info label="Sub-Organization" value="College of Engineering: Computer Engineering" />
-          <Info label="Farm" value="—" />
+          <Info label="Farm" value="Victa Ranch Pampanga (Pilot Site)" />
         </div>
 
         <div className="mt-5 border-t border-[hsl(var(--border))] dark:border-white/10 pt-4 grid sm:grid-cols-2 gap-3">
@@ -118,10 +137,17 @@ export default function About() {
           <MiniBadge>Electronics</MiniBadge>
           <MiniBadge>Software</MiniBadge>
         </div>
+
+        <SectionDivider label="Deployment Partner" color="emerald" />
+
+        <div className="mt-3 rounded-lg border border-emerald-300/30 dark:border-emerald-400/20 bg-emerald-50/35 dark:bg-emerald-500/10 p-3">
+          <div className="text-xs text-gray-600 dark:text-gray-300">Pilot Site</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Victa Ranch Pampanga</div>
+        </div>
       </section>
 
-      {/* Detailed Guides */}
-      <section className="relative xl:col-span-12 card card-live p-5 md:p-6 overflow-hidden">
+      {/* Guides hub */}
+      <section ref={guidesRef} className="relative xl:col-span-12 card card-live p-5 md:p-6 overflow-hidden">
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60
                      bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50"
@@ -131,45 +157,89 @@ export default function About() {
                      bg-emerald-400/15 blur-2xl dark:bg-emerald-300/10"
         />
 
-        <Header icon={<Icon name="info" className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />} title="Getting Started" />
+        <Header icon={<Icon name="info" className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />} title="Guides & Learning Hub" />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-          {/* Bedding Prep */}
-          <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--card))] p-4">
-            <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">🛏️ Bedding Preparation</h4>
-            <ol className="text-sm text-gray-700 dark:text-gray-200 space-y-2">
-              <li><strong>1) Build the base:</strong> Shred cardboard or newspaper into strips. Fill the bin about 2/3 with dry bedding.</li>
-              <li><strong>2) Moisten:</strong> Add water and mix until it feels like a wrung-out sponge. No dripping water.</li>
-              <li><strong>3) Add structure:</strong> Mix in a handful of dry leaves or coconut coir to keep air pockets.</li>
-              <li><strong>4) Add grit:</strong> Sprinkle a small amount of crushed eggshells or garden lime for worm digestion.</li>
-              <li><strong>5) Add starter feed:</strong> Bury a small handful of food scraps in one corner. Cover with bedding.</li>
-              <li><strong>6) Rest and check:</strong> Wait 24 hours, then add worms. If it smells sour, add more bedding.</li>
-            </ol>
-          </div>
+        <p className="text-xs md:text-sm text-gray-600 dark:text-gray-300 mb-3 max-w-3xl">
+          Choose a learning path based on what you need right now, analytics interpretation or hands-on vermiculture operations.
+        </p>
 
-          {/* Food & Bedding Guide */}
-          <div className="rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--card))] p-4">
-            <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">🍎 Food & Bedding Guide</h4>
-            <div className="text-sm text-gray-700 dark:text-gray-200 space-y-2">
-              <div><strong>Feed weekly:</strong> Add a small amount, wait until most is gone before adding more.</div>
-              <div><strong>Good foods:</strong> Fruit & veg scraps, coffee grounds, tea bags, crushed eggshells.</div>
-              <div><strong>Balance with browns:</strong> Shredded cardboard, paper, dry leaves keep the bin airy.</div>
-              <div><strong>Avoid:</strong> Meat, dairy, oily foods, salty/spicy foods, excessive citrus or onion.</div>
-              <div><strong>Ratio:</strong> About 2–3 parts bedding (browns) to 1 part food (greens).</div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-1">
+          <article
+            className={[
+              "rounded-xl border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--card))] p-4 md:p-5",
+              "transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-400/35 hover:shadow-sm",
+              guidesInView ? "animate-fade-in-up opacity-100" : "opacity-0 translate-y-2"
+            ].join(" ")}
+            style={{ animationDelay: guidesInView ? "100ms" : "0ms" }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-grid place-items-center w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/20">
+                <Icon name="dashboard" className="w-4 h-4 text-cyan-700 dark:text-cyan-200" />
+              </span>
+              <h3 className="text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">Dashboard Analytics Guide</h3>
             </div>
-          </div>
-        </div>
 
-        {/* General Tips */}
-        <div className="mt-6 rounded-lg border border-[hsl(var(--border))] dark:border-white/10 bg-white/40 dark:bg-gray-900/40 p-4">
-          <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">💡 Key Tips for Success</h4>
-          <ul className="text-sm text-gray-700 dark:text-gray-200 space-y-2">
-            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Keep nutrient balance; excess salts can stress the bin.</span></li>
-            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Turn or lift bedding weekly to prevent anaerobic pockets and improve airflow.</span></li>
-            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Small, frequent feedings reduce odor and prevent heating spikes.</span></li>
-            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Maintain a moist, wrung-out sponge feel—too wet limits air flow.</span></li>
-            <li className="flex gap-2"><span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span> <span>Shred carbon-rich materials (cardboard) to balance nitrogen-rich food scraps.</span></li>
-          </ul>
+            <p className="text-sm text-gray-700 dark:text-gray-200 leading-6">
+              Understand moving averages, standard deviation, anomaly detection, trend labeling, and export insights in one practical explainer.
+            </p>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <MiniBadge>Trend reading</MiniBadge>
+              <MiniBadge>Anomaly spotting</MiniBadge>
+              <MiniBadge>CSV workflow</MiniBadge>
+            </div>
+
+            <div className="mt-4 h-[2px] rounded-full bg-gradient-to-r from-cyan-400/50 via-cyan-300/20 to-transparent" />
+
+            <div className="mt-4">
+              <Link
+                to="/about/dashboard-analytics-guide"
+                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold
+                           bg-cyan-600 text-white hover:bg-cyan-500 transition-colors duration-200"
+              >
+                Explore dashboard analytics guide
+              </Link>
+            </div>
+          </article>
+
+          <article
+            className={[
+              "rounded-xl border border-[hsl(var(--border))] dark:border-white/10 bg-[hsl(var(--card))] p-4 md:p-5",
+              "transition-all duration-300 hover:-translate-y-0.5 hover:border-emerald-400/35 hover:shadow-sm",
+              guidesInView ? "animate-fade-in-up opacity-100" : "opacity-0 translate-y-2"
+            ].join(" ")}
+            style={{ animationDelay: guidesInView ? "220ms" : "0ms" }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-grid place-items-center w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/20">
+                <Icon name="info" className="w-4 h-4 text-emerald-700 dark:text-emerald-200" />
+              </span>
+              <h3 className="text-sm md:text-base font-semibold text-gray-900 dark:text-gray-100">Vermicomposting Guide</h3>
+            </div>
+
+            <p className="text-sm text-gray-700 dark:text-gray-200 leading-6">
+              Get a complete ANC setup guide including feeding routines, moisture management, do's and don'ts, and step-by-step vermiculture flow.
+            </p>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <MiniBadge>ANC handling</MiniBadge>
+              <MiniBadge>Feeding guide</MiniBadge>
+              <MiniBadge>Bilingual support</MiniBadge>
+            </div>
+
+            <div className="mt-4 h-[2px] rounded-full bg-gradient-to-r from-emerald-400/50 via-emerald-300/20 to-transparent" />
+
+            <div className="mt-4">
+              <Link
+                to="/about/vermicomposting-guide"
+                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold
+                           bg-emerald-600 text-white hover:bg-emerald-500
+                           transition-colors duration-200"
+              >
+                Learn more about vermicomposting
+              </Link>
+            </div>
+          </article>
         </div>
       </section>
     </div>
@@ -269,5 +339,21 @@ function StarIcon() {
       <path d="M12 3l2.1 4.3L19 8l-3.5 3.4L16 17l-4-2.1L8 17l.5-5.6L5 8l4.9-.7L12 3z"
             stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
     </svg>
+  )
+}
+
+function SectionDivider({ label, color }: { label: string; color: "emerald" | "cyan" }) {
+  const tint = color === "emerald"
+    ? "from-emerald-400/40 via-emerald-300/20"
+    : "from-cyan-400/40 via-cyan-300/20"
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] uppercase tracking-wide text-gray-600 dark:text-gray-300">{label}</span>
+        <span className="w-1 h-1 rounded-full bg-emerald-400/80" />
+      </div>
+      <div className={`mt-1 h-[1px] rounded-full bg-gradient-to-r ${tint} to-transparent`} />
+    </div>
   )
 }

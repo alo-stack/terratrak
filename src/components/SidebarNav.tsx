@@ -13,7 +13,7 @@ type Item = {
 }
 
 const items: Item[] = [
-  { key: "overview", label: "Dashboard", icon: "dashboard", to: "/" },
+  { key: "overview", label: "Overview", icon: "dashboard", to: "/" },
   { key: "sensors", label: "Sensors", icon: "gauge", to: "/sensors" },
   { key: "settings", label: "Settings", icon: "cog", to: "/settings" },
   { key: "about", label: "About", icon: "info", to: "/about" },
@@ -37,20 +37,20 @@ function RailBtn({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={[
-        "relative w-11 h-11 rounded-2xl grid place-items-center shrink-0",
+        "relative w-12 h-12 rounded-2xl grid place-items-center shrink-0",
         "backdrop-blur-xl border transition-all duration-200 ease-out",
         active
           ? "bg-emerald-500/20 border-emerald-400/60 ring-2 ring-emerald-500/50 shadow-lg shadow-emerald-400/30"
-          : "bg-white/55 dark:bg-white/[0.12] border-slate-300/70 dark:border-white/20 hover:bg-white/70 dark:hover:bg-white/[0.16] hover:scale-110 active:scale-95",
+          : "bg-white/20 dark:bg-white/[0.12] border-white/30 dark:border-white/20 hover:bg-white/30 dark:hover:bg-white/[0.16] hover:scale-110 active:scale-95",
       ].join(" ")}
     >
       <Icon
         name={icon}
         className={[
-          "w-5 h-5 transition-all duration-200 stroke-[1.8]",
+          "w-6 h-6 transition-all duration-200 stroke-[1.8]",
           active
-            ? "text-emerald-700 drop-shadow-[0_0_10px_rgba(52,211,153,0.7)]"
-            : "text-gray-700 dark:text-gray-200",
+            ? "text-emerald-300 drop-shadow-[0_0_10px_rgba(52,211,153,0.7)]"
+            : "text-gray-500 dark:text-gray-200",
         ].join(" ")}
       />
       {active && (
@@ -135,10 +135,10 @@ export default function SidebarNav() {
         className="
           md:hidden fixed bottom-4 left-1/2 -translate-x-1/2
           flex items-center justify-center gap-2
-          w-auto rounded-full py-2.5 px-3.5
-          bg-white/65 dark:bg-zinc-800/40 backdrop-blur-2xl
-          border border-slate-300/75 dark:border-white/30
-          shadow-[0_12px_34px_rgba(0,0,0,0.18),0_4px_12px_rgba(0,0,0,0.1)]
+          w-auto rounded-full py-3 px-4
+          bg-white/30 dark:bg-zinc-800/40 backdrop-blur-2xl
+          border border-white/50 dark:border-white/30
+          shadow-[0_12px_40px_rgba(0,0,0,0.2),0_4px_12px_rgba(0,0,0,0.1)]
           transition-all duration-300 ease-out
           hover:shadow-[0_16px_56px_rgba(0,0,0,0.3)]
           z-50
@@ -158,7 +158,7 @@ export default function SidebarNav() {
           />
         ))}
 
-        <div className='w-px h-8 bg-slate-300/80 dark:bg-white/20 mx-1' />
+        <div className='w-px h-9 bg-white/25 dark:bg-white/20 mx-1.5' />
         
         <div className='shrink-0'>
           <ThemeToggle />

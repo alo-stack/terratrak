@@ -149,11 +149,19 @@ export async function sendEmail(options: {
   subject: string;
   html: string;
   text?: string;
+  recipient?: string;
 }) {
   try {
     const config = getEmailConfig();
     const transport = getTransporter();
-    const recipients = await getRecipientEmails(config.recipient);
+    
+    // If a specific recipient is provided, use that; otherwise use the configured list
+    let recipients: string[];
+    if (options.recipient) {
+      recipients = [options.recipient];
+    } else {
+      recipients = await getRecipientEmails(config.recipient);
+    }
 
     if (!recipients.length) {
       throw new Error('No recipient emails configured');

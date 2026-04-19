@@ -64,6 +64,150 @@ function migrateThresholds(saved: any): Thresholds {
 }
 
 export default function Settings() {
+  // Simple email+password auth state
+  const [userEmail, setUserEmail] = React.useState<string | null>(null)
+  const [loginEmail, setLoginEmail] = React.useState("")
+  const [loginPassword, setLoginPassword] = React.useState("")
+  const [authError, setAuthError] = React.useState<string | null>(null)
+  const [authLoading, setAuthLoading] = React.useState(false)
+  const [recipients, setRecipients] = React.useState<string[]>([])
+
+  // Change password state
+  const [showChangePassword, setShowChangePassword] = React.useState(false)
+  const [currentPassword, setCurrentPassword] = React.useState("")
+  const [newPassword, setNewPassword] = React.useState("")
+  const [newPasswordConfirm, setNewPasswordConfirm] = React.useState("")
+  const [passwordError, setPasswordError] = React.useState<string | null>(null)
+  const [passwordLoading, setPasswordLoading] = React.useState(false)
+
+  // Load recipients list once
+  React.useEffect(() => {
+    const ref = doc(db, "email_addresses", "recipients")
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        const emails = snap.get("emails") as string[]
+        setRecipients(Array.isArray(emails) ? emails.map(e => e.toLowerCase()) : [])
+      }
+    }, () => {
+      console.warn("Failed to load recipients")
+    })
+    return () => unsub()
+  }, [])
+
+  // Check if user is logged in on mount
+  React.useEffect(() => {
+    const saved = localStorage.getItem("tt_user_email")
+    if (saved) {
+      setUserEmail(saved)
+    }
+  }, [])
+
+  // Handle login
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAuthError(null)
+    setAuthLoading(true)
+
+    try {
+      const email = loginEmail.trim().toLowerCase()
+      const password = loginPassword.trim()
+
+      // Check if email is in recipients
+      if (!recipients.includes(email)) {
+        setAuthError("Email not found in recipients list")
+        setAuthLoading(false)
+        return
+      }
+
+      // Get stored password (or default "terratrak")
+      const accountRef = doc(db, "user_accounts", email)
+      const accountSnap = await getDoc(accountRef)
+      const storedPassword = accountSnap.exists() ? accountSnap.get("password") : "terratrak"
+
+      if (password !== storedPassword) {
+        setAuthError("Incorrect password")
+        setAuthLoading(false)
+        return
+      }
+
+      // Success - save to localStorage
+      localStorage.setItem("tt_user_email", email)
+      setUserEmail(email)
+      setLoginEmail("")
+      setLoginPassword("")
+    } catch (err: any) {
+      setAuthError(err.message || "Login failed")
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem("tt_user_email")
+    setUserEmail(null)
+    setThresholds(DEFAULTS)
+    setLoginEmail("")
+    setLoginPassword("")
+  }
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPasswordError(null)
+
+    if (!userEmail) {
+      setPasswordError("Not logged in")
+      return
+    }
+
+    if (!currentPassword.trim()) {
+      setPasswordError("Enter current password")
+      return
+    }
+
+    if (!newPassword.trim()) {
+      setPasswordError("Enter new password")
+      return
+    }
+
+    if (newPassword !== newPasswordConfirm) {
+      setPasswordError("Passwords don't match")
+      return
+    }
+
+    setPasswordLoading(true)
+
+    try {
+      // Verify current password
+      const accountRef = doc(db, "user_accounts", userEmail)
+      const accountSnap = await getDoc(accountRef)
+      const storedPassword = accountSnap.exists() ? accountSnap.get("password") : "terratrak"
+
+      if (currentPassword !== storedPassword) {
+        setPasswordError("Current password is incorrect")
+        setPasswordLoading(false)
+        return
+      }
+
+      // Update password
+      await setDoc(accountRef, { 
+        password: newPassword,
+        updated_at: serverTimestamp()
+      }, { merge: true })
+
+      setBanner({ kind: "ok", msg: "Password changed successfully." })
+      setCurrentPassword("")
+      setNewPassword("")
+      setNewPasswordConfirm("")
+      setShowChangePassword(false)
+      setTimeout(() => setBanner(null), 2200)
+    } catch (err: any) {
+      setPasswordError(err.message || "Failed to change password")
+    } finally {
+      setPasswordLoading(false)
+    }
+  }
+
+  // Thresholds state - only load if user is logged in
   const [thresholds, setThresholds] = React.useState<Thresholds>(() => {
     const saved = localStorage.getItem(THRESHOLDS_KEY)
     return saved ? migrateThresholds(saved) : DEFAULTS
@@ -79,25 +223,86 @@ export default function Settings() {
   const savedEmailsRef = React.useRef<string[]>([])
   const [dummyEnabled, setDummyEnabled] = React.useState<boolean>(getDummyDataEnabled())
 
-  // Simple client-side gate: always start locked on page load
-  const [unlocked, setUnlocked] = React.useState<boolean>(false)
-  const [pw, setPw] = React.useState<string>("")
-  const [pwError, setPwError] = React.useState<string | null>(null)
+  // Sprinkler control state
+  const [sprinklerState, setSprinklerState] = React.useState<"unknown" | "on" | "off">("unknown")
+  const [sprinklerLoading, setSprinklerLoading] = React.useState<boolean>(false)
 
   React.useEffect(() => onDummyDataChange(() => setDummyEnabled(getDummyDataEnabled())), [])
 
-  const tryUnlock = () => {
-    if (pw === "terratrak") {
-      setUnlocked(true)
-      setPw("")
-      setPwError(null)
-    } else {
-      setPwError("Incorrect password")
+  // Load initial sprinkler state from Firebase on mount
+  React.useEffect(() => {
+    let active = true
+    try {
+      const ref = doc(db, "device_controls", "sprinkler")
+      const unsub = onSnapshot(ref, (snap) => {
+        if (!active) return
+        if (!snap.exists()) {
+          setSprinklerState("off")
+          return
+        }
+        const state = snap.get("state")
+        if (state === "on" || state === "off") {
+          setSprinklerState(state)
+        }
+      }, (err) => {
+        console.warn("Could not load sprinkler state", err)
+        if (active) setSprinklerState("off")
+      })
+      return () => { active = false; unsub() }
+    } catch (e) {
+      console.warn("Could not subscribe to sprinkler control", e)
+      if (active) setSprinklerState("off")
+      return () => { active = false }
     }
-  }
+  }, [])
 
-  const lockSettings = () => {
-    setUnlocked(false)
+  // Load user's thresholds from Firestore when logged in
+  React.useEffect(() => {
+    if (!userEmail) {
+      setThresholds(DEFAULTS)
+      return
+    }
+
+    let active = true
+    try {
+      const userThresholdRef = doc(db, "user_accounts", userEmail, "thresholds", "config")
+      const unsub = onSnapshot(userThresholdRef, (snap) => {
+        if (!active) return
+        if (snap.exists()) {
+          const cloud = snap.data() || {}
+          if (cloud) {
+            const migrated = migrateThresholds(cloud)
+            setThresholds(migrated)
+            setBanner({ kind: "ok", msg: "Thresholds loaded from your account." })
+            setTimeout(() => setBanner(null), 2200)
+          }
+        }
+      }, (err) => {
+        console.warn('thresholds snapshot failed', err)
+      })
+      return () => { active = false; unsub() }
+    } catch (e) {
+      console.warn('could not subscribe to user thresholds', e)
+      return () => { active = false }
+    }
+  }, [userEmail])
+
+  const toggleSprinkler = async () => {
+    setSprinklerLoading(true)
+    try {
+      const nextState = sprinklerState === "on" ? "off" : "on"
+      const controlRef = doc(db, "device_controls", "sprinkler")
+      await setDoc(controlRef, { state: nextState, updated_at: serverTimestamp() }, { merge: true })
+      setSprinklerState(nextState)
+      setBanner({ kind: "ok", msg: `Sprinkler turned ${nextState}.` })
+      setTimeout(() => setBanner(null), 2200)
+    } catch (err) {
+      console.error("Failed to control sprinkler", err)
+      setBanner({ kind: "err", msg: "Failed to control sprinkler." })
+      setTimeout(() => setBanner(null), 2200)
+    } finally {
+      setSprinklerLoading(false)
+    }
   }
 
   const setField = (group: keyof Thresholds, bound: "min" | "max", value: string) => {
@@ -134,25 +339,33 @@ export default function Settings() {
   }, [thresholds])
 
   const saveThresholds = () => {
+    if (!userEmail) {
+      setBanner({ kind: "err", msg: "Must be logged in to save thresholds." })
+      return
+    }
+
     const err = validateThresholds(thresholds)
     if (err) {
       setBanner({ kind: "err", msg: err })
       return
     }
     setSaving("thresholds")
-    localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(thresholds))
-    // Also persist thresholds to Firestore so backend processes can read them
+    
     try {
-      const cfgRef = doc(db, "alert_configs", "default")
-      // write thresholds + timestamp
-      setDoc(cfgRef, { thresholds, updated_at: serverTimestamp() }, { merge: true }).catch((e) => console.warn('failed to save thresholds to cloud', e))
+      const userThresholdRef = doc(db, "user_accounts", userEmail, "thresholds", "config")
+      setDoc(userThresholdRef, { 
+        ...thresholds, 
+        updated_at: serverTimestamp(),
+        email: userEmail
+      }, { merge: true }).catch((e) => console.warn('failed to save thresholds to cloud', e))
     } catch (e) {
       console.warn('failed to queue threshold cloud write', e)
     }
+    
     setTimeout(() => {
       setSaving(null)
       setSavedPulse("t")
-      setBanner({ kind: "ok", msg: "Thresholds saved. These values will be used by alerts and charts." })
+      setBanner({ kind: "ok", msg: "Thresholds saved to your account. Alerts will use these values." })
       setTimeout(() => setSavedPulse(null), 900)
     }, 300)
   }
@@ -291,10 +504,9 @@ export default function Settings() {
     }
   }
 
-  // Load & subscribe to recipient list from Firestore only after unlock.
-  // This prevents recipients from being present in the DOM/state before access is granted.
+  // Load & subscribe to recipient list from Firestore only after user is logged in.
   React.useEffect(() => {
-    if (!unlocked) {
+    if (!userEmail) {
       setLoadingEmail(false)
       return
     }
@@ -331,10 +543,12 @@ export default function Settings() {
       if (active) setLoadingEmail(false)
       return () => { active = false }
     }
-  }, [unlocked])
+  }, [userEmail])
 
-  // Load & subscribe to threshold config from Firestore so changes propagate across devices
+  // Load & subscribe to threshold config from Firestore (for backward compat, but user's personal thresholds take precedence)
   React.useEffect(() => {
+    if (userEmail) return // User has personal thresholds, skip global config
+    
     let active = true
     try {
       const ref = doc(db, "alert_configs", "default")
@@ -362,11 +576,58 @@ export default function Settings() {
       return () => { active = false }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [userEmail])
 
   return (
     <div className="relative">
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 animate-fade-in-up">
+      {!userEmail ? (
+        // Login form
+        <div className="max-w-md mx-auto mt-12 p-6 border rounded-lg bg-white/80 dark:bg-[hsl(var(--card))]/85 backdrop-blur border-[hsl(var(--border))] dark:border-white/10">
+          <h2 className="text-2xl font-bold mb-6">Settings</h2>
+          <p className="text-sm opacity-70 mb-4">Sign in to manage your alert thresholds.</p>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold opacity-60">Email</label>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                className="w-full mt-1 px-3 py-2 text-sm border rounded bg-white/60 dark:bg-gray-900 border-[hsl(var(--border))] dark:border-white/10"
+                placeholder="you@example.com"
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="text-xs font-semibold opacity-60">Password</label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full mt-1 px-3 py-2 text-sm border rounded bg-white/60 dark:bg-gray-900 border-[hsl(var(--border))] dark:border-white/10"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+            
+            {authError && (
+              <div className="text-xs text-rose-600 dark:text-rose-400">
+                {authError}
+              </div>
+            )}
+            
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full px-4 py-2 text-sm font-semibold bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 transition"
+            >
+              {authLoading ? "Signing in..." : "Sign In"}
+            </button>
+          </form>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 animate-fade-in-up">
       
       {banner && (
         <div className="xl:col-span-12 banner-enter rounded-xl px-4 py-2 border text-sm bg-white/80 dark:bg-[hsl(var(--card))]/85 backdrop-blur border-[hsl(var(--border))] dark:border-white/10">
@@ -600,48 +861,146 @@ export default function Settings() {
           </p>
         </div>
       </section>
-    </div>
 
-    {/* Lock overlay (glass card + backdrop blur) */}
-    {!unlocked && (
-      <div className="fixed inset-0 sm:absolute sm:inset-0 z-40 flex items-start sm:items-center justify-center px-4 pt-24 sm:pt-6 pb-24 sm:pb-6">
-        <div className="fixed inset-0 sm:absolute sm:inset-0 bg-black/24 backdrop-blur-sm" />
-        <motion.div
-          initial={{ opacity: 0, y: 10, scale: 0.99 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 6, scale: 0.995 }}
-          transition={{ duration: 0.28, ease: [0.2, 0.9, 0.28, 1] }}
-          className="relative z-50 w-full max-w-sm mx-auto p-6 rounded-xl border bg-white/70 dark:bg-gray-900/60 backdrop-blur-md border-[hsl(var(--border))] shadow-lg"
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center ring-1 ring-emerald-100 dark:bg-emerald-700/10">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none"><path d="M12 11c1.657 0 3-1.343 3-3S13.657 5 12 5 9 6.343 9 8s1.343 3 3 3z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 20v-2a4 4 0 014-4h6a4 4 0 014 4v2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      {/* Troubleshooting */}
+      <section
+        className={[
+          "xl:col-span-12 setting-card p-4 sm:p-6 overflow-hidden relative",
+          "animate-fade-in-up",
+        ].join(" ")}
+        style={{ animationDelay: "300ms" }}
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] animate-shimmer opacity-60 bg-gradient-to-r from-transparent via-white to-transparent dark:via-white/50" />
+        <div className="pointer-events-none absolute -bottom-10 -right-16 w-56 h-56 rounded-full bg-blue-400/15 blur-2xl dark:bg-blue-300/10" />
+
+        <Header
+          title="Troubleshooting"
+          subtitle="Manual device controls and diagnostics."
+          icon={<WrenchIcon className="w-4 h-4 text-blue-600 dark:text-blue-400" />}
+          chip={sprinklerState !== "unknown" ? `Sprinkler ${sprinklerState}` : "Status unknown"}
+          chipVariant={sprinklerState === "on" ? "success" : "muted"}
+        />
+
+        <div className="mt-4 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div>
+              <h3 className="text-sm font-medium">Sprinkler control</h3>
+              <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Manually toggle the sprinkler on or off for testing and maintenance.</p>
             </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-base font-semibold">Settings locked</h3>
-              <div className="text-xs text-gray-600 dark:text-gray-300 mt-1 truncate">Enter the password to continue.</div>
-              <div className="mt-3">
+            <button
+              onClick={toggleSprinkler}
+              disabled={sprinklerLoading || sprinklerState === "unknown"}
+              className={[
+                "ml-auto rounded-xl px-4 py-2 font-medium transition-colors disabled:opacity-60 flex items-center gap-2 whitespace-nowrap",
+                sprinklerState === "on"
+                  ? "bg-rose-600 text-white hover:bg-rose-700"
+                  : "bg-blue-600 text-white hover:bg-blue-700",
+              ].join(" ")}
+            >
+              {sprinklerLoading ? <Spinner /> : null}
+              {sprinklerState === "on" ? "Turn Off" : "Turn On"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Account section */}
+      <div className="xl:col-span-12">
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowChangePassword(!showChangePassword)}
+            className="px-4 py-2 text-sm font-semibold border rounded hover:bg-white/50 dark:hover:bg-white/10 transition"
+          >
+            Change Password
+          </button>
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 text-sm font-semibold border rounded hover:bg-white/50 dark:hover:bg-white/10 transition"
+          >
+            Sign Out
+          </button>
+        </div>
+
+        {showChangePassword && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mt-4 p-4 border rounded-lg bg-white/60 dark:bg-gray-900/40"
+          >
+            <h3 className="font-semibold mb-3">Change Password</h3>
+            <form onSubmit={handleChangePassword} className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold opacity-60">Current Password</label>
                 <input
                   type="password"
-                  value={pw}
-                  onChange={(e) => setPw(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') tryUnlock() }}
-                  placeholder="Password"
-                  className="input w-full"
-                  aria-label="Settings password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 text-sm border rounded bg-white/60 dark:bg-gray-800 border-[hsl(var(--border))] dark:border-white/10"
+                  placeholder="••••••••"
+                  required
                 />
-                {pwError && <div className="text-xs text-rose-600 mt-2">{pwError}</div>}
-                <div className="mt-3 flex gap-2">
-                  <button onClick={tryUnlock} className="px-4 py-2 rounded-lg bg-emerald-600 text-white flex-1">Unlock</button>
-                  <button onClick={() => { setPw(""); setPwError(null) }} className="px-4 py-2 rounded-lg border flex-1">Clear</button>
-                </div>
               </div>
-            </div>
-          </div>
-        </motion.div>
+              
+              <div>
+                <label className="text-xs font-semibold opacity-60">New Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 text-sm border rounded bg-white/60 dark:bg-gray-800 border-[hsl(var(--border))] dark:border-white/10"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="text-xs font-semibold opacity-60">Confirm New Password</label>
+                <input
+                  type="password"
+                  value={newPasswordConfirm}
+                  onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 text-sm border rounded bg-white/60 dark:bg-gray-800 border-[hsl(var(--border))] dark:border-white/10"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+              
+              {passwordError && (
+                <div className="text-xs text-rose-600 dark:text-rose-400">
+                  {passwordError}
+                </div>
+              )}
+              
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={passwordLoading}
+                  className="flex-1 px-4 py-2 text-sm font-semibold bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 transition"
+                >
+                  {passwordLoading ? "Updating..." : "Update Password"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowChangePassword(false)
+                    setCurrentPassword("")
+                    setNewPassword("")
+                    setNewPasswordConfirm("")
+                    setPasswordError(null)
+                  }}
+                  className="px-4 py-2 text-sm font-semibold border rounded hover:bg-white/50 dark:hover:bg-white/10 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
       </div>
-    )}
-  </div>
+      </div>
+      )}
+    </div>
   )
 }
 
@@ -799,6 +1158,15 @@ function BellIcon(props: React.SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" {...props}>
       <path d="M12 5a5 5 0 0 0-5 5v2.5l-1.3 2.2a1 1 0 0 0 .9 1.5h10.8a1 1 0 0 0 .9-1.5L17 12.5V10a5 5 0 0 0-5-5z" stroke="currentColor" strokeWidth="1.5" />
       <path d="M9.5 18a2.5 2.5 0 0 0 5 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function WrenchIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" {...props}>
+      <path d="M6 14l-3.5 3.5a2 2 0 0 0 0 2.83l2.67 2.67a2 2 0 0 0 2.83 0L11.5 20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 4a4 4 0 0 0-5.66 0l-5.66 5.66" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }

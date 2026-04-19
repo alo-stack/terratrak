@@ -297,28 +297,63 @@ function useLiveSeries(dummyEnabled: boolean) {
 
 export default function Overview() {
   const [dummyEnabled, setDummyEnabled] = React.useState(getDummyDataEnabled())
+  const [userEmail, setUserEmail] = React.useState<string | null>(null)
 
   React.useEffect(() => onDummyDataChange(() => setDummyEnabled(getDummyDataEnabled())), [])
+
+  // Restore session from localStorage.
+  React.useEffect(() => {
+    const saved = localStorage.getItem("tt_user_email")
+    setUserEmail(saved)
+  }, [])
 
   const [thresholds, setThresholds] = React.useState<Thresholds>(() => {
     const raw = localStorage.getItem(THRESHOLDS_KEY)
     return raw ? parseThresholds(raw) : DEFAULT_THRESHOLDS
   })
 
+  // Load thresholds from global config (logged out) or personal account (logged in)
   React.useEffect(() => {
+    if (!userEmail) {
+      // No user logged in - load from global config or defaults
+      let active = true
+      const ref = doc(db, "alert_configs", "default")
+      const unsub = onSnapshot(
+        ref,
+        (snap) => {
+          if (!active || !snap.exists()) return
+          const cloud = snap.data() as any
+          if (!cloud?.thresholds) return
+          const next = parseThresholds(cloud.thresholds)
+          setThresholds(next)
+          try {
+            localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(cloud.thresholds))
+          } catch {}
+        },
+        () => {}
+      )
+
+      return () => {
+        active = false
+        unsub()
+      }
+    }
+
+    // User is logged in - load from user's personal thresholds
     let active = true
-    const ref = doc(db, "alert_configs", "default")
+    const userThresholdRef = doc(db, "user_accounts", userEmail, "thresholds", "config")
     const unsub = onSnapshot(
-      ref,
+      userThresholdRef,
       (snap) => {
-        if (!active || !snap.exists()) return
-        const cloud = snap.data() as any
-        if (!cloud?.thresholds) return
-        const next = parseThresholds(cloud.thresholds)
-        setThresholds(next)
-        try {
-          localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(cloud.thresholds))
-        } catch {}
+        if (!active) return
+        if (snap.exists()) {
+          const cloud = snap.data() as any
+          const next = parseThresholds(cloud)
+          setThresholds(next)
+          try {
+            localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(cloud))
+          } catch {}
+        }
       },
       () => {}
     )
@@ -327,7 +362,7 @@ export default function Overview() {
       active = false
       unsub()
     }
-  }, [])
+  }, [userEmail])
 
   const { temp, moist, n, p, k, latestTemp, latestMoist, latestN, latestP, latestK, ts, mode, lastUpdate } = useLiveSeries(dummyEnabled)
 

@@ -24,9 +24,9 @@ type Thresholds = {
 const THRESHOLDS_KEY = "tt_thresholds"
 
 const DEFAULTS = {
-  temperature: { min: 15, max: 65 },
-  moisture: { min: 40, max: 80 },
-  n: { min: 150, max: 900 },
+  temperature: { min: 25, max: 35 },
+  moisture: { min: 50, max: 100 },
+  n: { min: 50, max: 900 },
   p: { min: 50, max: 300 },
   k: { min: 100, max: 800 },
 }
@@ -673,7 +673,7 @@ export default function Settings() {
           <ThresholdRow
             label="Moisture"
             unit="%"
-            hint="Guideline range: 40–80% relative moisture (like a wrung-out sponge)."
+            hint="Guideline range: 50–100% relative moisture (like a wrung-out sponge)."
             tooltip="Moisture keeps worms active and prevents overheating. Above ~80% can cause anaerobic zones."
             min={thresholds.moisture.min}
             max={thresholds.moisture.max}
@@ -684,7 +684,7 @@ export default function Settings() {
           <ThresholdRow
             label="Nitrogen (N)"
             unit="ppm"
-            hint="Guideline range: 50–100 ppm. Helps indicate balanced nitrogen availability."
+            hint="Guideline range: 50–900 ppm. Helps indicate balanced nitrogen availability."
             tooltip="We read N from your NPK sensor. Tune bounds to your sensor’s scale and desired feedstock ratio."
             min={thresholds.n.min}
             max={thresholds.n.max}
@@ -694,7 +694,7 @@ export default function Settings() {
           <ThresholdRow
             label="Phosphorus (P)"
             unit="ppm"
-            hint="Guideline range: 5–15 ppm. Supports root development and compost maturity tracking."
+            hint="Guideline range: 50–300 ppm. Supports root development and compost maturity tracking."
             tooltip="Use this to track nutrient maturity trends. Calibrate with your sensor’s docs."
             min={thresholds.p.min}
             max={thresholds.p.max}
@@ -704,7 +704,7 @@ export default function Settings() {
           <ThresholdRow
             label="Potassium (K)"
             unit="ppm"
-            hint="Guideline range: 100–180 ppm. Supports plant vigor and overall nutrient balance."
+            hint="Guideline range: 100–800 ppm. Supports plant vigor and overall nutrient balance."
             tooltip="If K is low while N is high, consider more brown/carbon feedstock."
             min={thresholds.k.min}
             max={thresholds.k.max}

@@ -827,20 +827,7 @@ function NPKRow({
         </div>
 
         {/* Trend summary - professional layout */}
-        <div className="space-y-2 text-sm border-t border-gray-300 dark:border-white/5 pt-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6 text-gray-700 dark:text-gray-300">
-              <div className="flex items-center gap-2"><span style={{color:COLOR_N}} className="w-2 h-2 rounded-full inline-block" /><span className="text-xs opacity-70">N:</span> <span className="tabular-nums font-medium">{arrow(nT)} {pct(sN, nT)}</span></div>
-              <div className="flex items-center gap-2"><span style={{color:COLOR_P}} className="w-2 h-2 rounded-full inline-block" /><span className="text-xs opacity-70">P:</span> <span className="tabular-nums font-medium">{arrow(pT)} {pct(sP, pT)}</span></div>
-              <div className="flex items-center gap-2"><span style={{color:COLOR_K}} className="w-2 h-2 rounded-full inline-block" /><span className="text-xs opacity-70">K:</span> <span className="tabular-nums font-medium">{arrow(kT)} {pct(sK, kT)}</span></div>
-            </div>
-          </div>
-          <div className="text-xs opacity-70 pt-1 text-gray-700 dark:text-gray-300">
-            <span className="font-medium" style={{color: statusColor[status]}}>
-              {status === 'ok' ? 'NPK levels balanced' : status === 'warn' ? 'NPK near limits' : 'NPK needs correction'}
-            </span>
-          </div>
-        </div>
+        {/* Removed bottom NPK summary line per request */}
       </div>
 
       <div className="absolute inset-x-0 bottom-0 h-12 sm:h-16 bg-gradient-to-t from-green-400/30 via-cyan-400/20 to-amber-400/0 pointer-events-none" />

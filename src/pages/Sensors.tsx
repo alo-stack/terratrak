@@ -50,7 +50,7 @@ const THRESHOLDS_KEY = "tt_thresholds"
 const DEFAULT_THRESHOLDS: Thresholds = {
   temperature: { min: 15, max: 65 },
   moisture: { min: 40, max: 80 },
-  npk: { n: { min: 50, max: 200 }, p: { min: 20, max: 100 }, k: { min: 50, max: 200 } },
+  npk: { n: { min: 50, max: 900 }, p: { min: 50, max: 300 }, k: { min: 100, max: 800 } },
 }
 
 const parseThresholds = (raw: any): Thresholds => {
@@ -108,6 +108,14 @@ const WINDOWS: Record<RangeKey, number> = {
   "1h": 60 * 60 * 1000,
   "24h": 24 * 60 * 60 * 1000,
   "7d": 7 * 24 * 60 * 60 * 1000,
+}
+
+// Smoothing window size by range to reduce chart noise
+const SMOOTHING_WINDOWS: Record<RangeKey, number> = {
+  live: 3,
+  "1h": 5,
+  "24h": 15,
+  "7d": 45,
 }
 
 /* trend helpers live in src/lib/trend.ts */
@@ -266,17 +274,27 @@ export default function Sensors() {
 
   React.useEffect(() => {
     let active = true
-    const ref = doc(db, "alert_configs", "default")
+    // Try to load per-user thresholds from Firestore, fallback to localStorage
+    const userEmail = localStorage.getItem("tt_user_email")
+    if (!userEmail) {
+      // Not logged in: use localStorage or defaults
+      const saved = localStorage.getItem(THRESHOLDS_KEY)
+      if (saved) setThresholds(parseThresholds(saved))
+      return
+    }
+
+    const ref = doc(db, "user_accounts", userEmail, "thresholds", "config")
     const unsub = onSnapshot(
       ref,
       (snap) => {
-        if (!active || !snap.exists()) return
-        const cloud = snap.data() as any
-        if (!cloud?.thresholds) return
-        setThresholds(parseThresholds(cloud.thresholds))
-        try {
-          localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(cloud.thresholds))
-        } catch {}
+        if (!active) return
+        if (snap.exists()) {
+          const cloud = snap.data() as any
+          setThresholds(parseThresholds(cloud))
+          try {
+            localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(cloud))
+          } catch {}
+        }
       },
       () => {}
     )
@@ -401,11 +419,11 @@ export default function Sensors() {
     [series, windowed, range]
   )
 
-  const sTemp = statusFor(kpi.temp.avg, RANGES.temp.min, RANGES.temp.max)
-  const sMoist = statusFor(kpi.moist.avg, RANGES.moist.min, RANGES.moist.max)
-  const sN = statusFor(kpi.n.avg, RANGES.n.min, RANGES.n.max)
-  const sP = statusFor(kpi.p.avg, RANGES.p.min, RANGES.p.max)
-  const sK = statusFor(kpi.k.avg, RANGES.k.min, RANGES.k.max)
+  const sTemp = statusFor(kpi.temp.avg, thresholds.temperature.min, thresholds.temperature.max)
+  const sMoist = statusFor(kpi.moist.avg, thresholds.moisture.min, thresholds.moisture.max)
+  const sN = statusFor(kpi.n.avg, thresholds.npk.n.min, thresholds.npk.n.max)
+  const sP = statusFor(kpi.p.avg, thresholds.npk.p.min, thresholds.npk.p.max)
+  const sK = statusFor(kpi.k.avg, thresholds.npk.k.min, thresholds.npk.k.max)
 
   const insights = React.useMemo(() => {
     type Insight = { text: string; level: 'ok' | 'notice' | 'urgent' }
@@ -560,12 +578,12 @@ export default function Sensors() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 gap-4 mt-5">
-        <ChartCard title="Temperature" unit="°C" color="#10b981" data={series.temp} times={windowed.map(s=>s.ts)} bigValue={kpi.temp.avg} />
-        <ChartCard title="Moisture" unit="%" color="#38bdf8" data={series.moist} times={windowed.map(s=>s.ts)} bigValue={kpi.moist.avg} />
+        <ChartCard title="Temperature" unit="°C" color="#10b981" data={movingAverage(series.temp, SMOOTHING_WINDOWS[range])} times={windowed.map(s=>s.ts)} bigValue={kpi.temp.avg} />
+        <ChartCard title="Moisture" unit="%" color="#38bdf8" data={movingAverage(series.moist, SMOOTHING_WINDOWS[range])} times={windowed.map(s=>s.ts)} bigValue={kpi.moist.avg} />
         <NpkChartCard
-          nSeries={series.n}
-          pSeries={series.p}
-          kSeries={series.k}
+          nSeries={movingAverage(series.n, SMOOTHING_WINDOWS[range])}
+          pSeries={movingAverage(series.p, SMOOTHING_WINDOWS[range])}
+          kSeries={movingAverage(series.k, SMOOTHING_WINDOWS[range])}
           times={windowed.map(s => s.ts)}
           kpi={{ n: kpi.n, p: kpi.p, k: kpi.k }}
         />
@@ -738,10 +756,20 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
   const kAlerts = countOutOfRange(kS, thresholds.npk.k.min, thresholds.npk.k.max)
   const totalAlerts = tAlerts + mAlerts + nAlerts + pAlerts + kAlerts
 
-  // stability: coefficient of variation mapped to rating
-  const cv = (sd:number, mean:number) => mean ? sd/Math.abs(mean) : 0
-  const cvs = [cv(tSd,tAvg), cv(mSd,mAvg), cv(nSd,nAvg), cv(pSd,pAvg), cv(kSd,kAvg)].filter(v=>Number.isFinite(v))
-  const avgCv = cvs.length ? (cvs.reduce((a,b)=>a+b,0)/cvs.length) : 0
+  // stability: shared weighted score that favors temperature and moisture consistency
+  const stabilityIndex = stabilityScore({
+    temp: tS,
+    moist: mS,
+    n: nS,
+    p: pS,
+    k: kS,
+  })
+  const stabilityState =
+    stabilityIndex >= 75
+      ? { label: "Stable", detail: "Low variation", tone: "#10b981", bg: "#10b98122" }
+      : stabilityIndex >= 50
+        ? { label: "Moderate", detail: "Moderate variation", tone: "#f59e0b", bg: "#f59e0b22" }
+        : { label: "Variable", detail: "High variation", tone: "#ef4444", bg: "#ef444422" }
 
   const weekEnd = new Date();
   const weekStart = new Date(Date.now() - 7*24*60*60*1000)
@@ -1025,14 +1053,14 @@ function WeeklyReportCard({ tempSeries, moistSeries, nSeries, pSeries, kSeries, 
           <div className="flex-1">
             <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm">Stability Index</div>
             <div className="text-xs opacity-70 mt-0.5">
-              {avgCv < 0.12 ? 'Stable' : avgCv < 0.25 ? 'Moderate variation' : 'High variation'}
+              {stabilityState.detail}
             </div>
           </div>
           <div className="px-3 py-1.5 rounded-lg font-bold text-xs sm:text-sm w-fit" style={{ 
-            background: avgCv < 0.12 ? '#10b98122' : avgCv < 0.25 ? '#f59e0b22' : '#ef444422',
-            color: avgCv < 0.12 ? '#10b981' : avgCv < 0.25 ? '#f59e0b' : '#ef4444'
+            background: stabilityState.bg,
+            color: stabilityState.tone
           }}>
-            {avgCv < 0.12 ? 'Stable' : avgCv < 0.25 ? 'Moderate' : 'Variable'}
+            {stabilityState.label} · {stabilityIndex}/100
           </div>
         </div>
       </div>

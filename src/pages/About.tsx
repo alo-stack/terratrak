@@ -52,10 +52,10 @@ export default function About() {
             composting, but not both.
           </p>
           <p>
-            TerraTrak uses sensors to track <em>temperature</em>, <em>humidity</em>, and
+            TerraTrak uses sensors to track <em>temperature</em>, <em>moisture</em>, and
             <em> nutrients</em>, surfacing real-time insights via an online dashboard. The result:
-            consistent compost, healthier soils, and a modern and sustainable alternative to chemical fertilizers
-            —in a solution that’s affordable and accessible for everyday users.
+            consistent compost, healthier soils, and a modern and sustainable alternative to chemical fertilizers,
+            in a solution that’s affordable and accessible for everyday users.
           </p>
         </div>
 

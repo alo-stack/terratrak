@@ -25,7 +25,7 @@ const DEVICE_ID = "esp32-001"
 const DEFAULT_THRESHOLDS: Thresholds = {
   temperature: { min: 15, max: 65 },
   moisture: { min: 40, max: 80 },
-  npk: { n: { min: 50, max: 200 }, p: { min: 20, max: 100 }, k: { min: 50, max: 200 } },
+  npk: { n: { min: 50, max: 900 }, p: { min: 50, max: 300 }, k: { min: 100, max: 800 } },
 }
 
 const parseThresholds = (raw: any): Thresholds => {

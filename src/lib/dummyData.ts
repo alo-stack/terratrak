@@ -4,10 +4,10 @@ const DUMMY_DATA_EVENT = "tt-dummy-data"
 export function getDummyDataEnabled(): boolean {
   try {
     const raw = localStorage.getItem(DUMMY_DATA_KEY)
-    if (raw === null) return true
+    if (raw === null) return false
     return raw === "1" || raw === "true"
   } catch {
-    return true
+    return false
   }
 }
 
